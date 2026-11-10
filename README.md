@@ -1,10 +1,17 @@
 # SpoolMate — Filament-Manager & Projekt-Kostenrechner
 
+<img width="2496" height="3206" alt="image" src="https://github.com/user-attachments/assets/eae812de-50e5-4b02-9c74-6ea17f3e77e5" />
+
 Eine übersichtliche, schnelle Web-App im Industrial-Light-Design (`#FF5F1F`) zum Verwalten von 3D-Druck Filament-Spulen, Herstellern und mehrteiligen Druckprojekten inkl. Material- und Stromkosten-Kalkulation.
 
 Alle Daten werden lokal und persistent in einer **SQLite-Datenbank** (`data/filaments.db`) gespeichert – ganz ohne externe `npm`-Abhängigkeiten (nutzt das in Node.js 22+ integrierte `node:sqlite`).
 
 ---
+
+## Disclaimer
+
+Die Anwendung ist per Vibe-Coding entstanden, da ich Bedarf hatte, meinen Filament-Bestand zu verwalten und die Kosten meiner Drucke zu berechnen.
+Ihr könnt sie gerne nutzen oder erweitern, um euch eigene Token-Kosten zu sparen :)
 
 ## Voraussetzungen & Start
 
