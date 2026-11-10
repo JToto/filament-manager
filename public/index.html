@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SpoolMate — Filament-Verwaltung</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Header -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-logo" aria-hidden="true">
+          <svg viewBox="0 0 36 36" fill="none">
+            <circle cx="18" cy="18" r="15.5" stroke="#18181B" stroke-width="2.5"/>
+            <circle cx="18" cy="18" r="10.5" stroke="#FF5F1F" stroke-width="4.5" stroke-dasharray="48 18" stroke-linecap="butt"/>
+            <circle cx="18" cy="18" r="4" fill="#18181B"/>
+          </svg>
+        </div>
+        <div>
+          <div class="brand-title-row">
+            <h1>SpoolMate</h1>
+            <span class="brand-tag">FILAMENT INVENTAR</span>
+          </div>
+          <p class="subtitle">Spulenbestand, Hersteller &amp; Druckkosten-Kalkulation</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="btn btn-primary" id="btnAddFilament">
+          <span class="btn-icon">+</span> Neue Spule anlegen
+        </button>
+      </div>
+    </header>
+
+    <!-- KPI Cards -->
+    <section class="stats-grid" aria-label="Bestandsübersicht">
+      <div class="stat-card">
+        <span class="stat-label">Spulen im Bestand</span>
+        <strong class="stat-value mono" id="statSpoolCount">0</strong>
+        <span class="stat-meta" id="statLowCount">0 fast leer (&lt; 200 g)</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Verfügbare Restmenge</span>
+        <strong class="stat-value mono" id="statTotalRemaining">0 g</strong>
+        <span class="stat-meta" id="statTotalInitial">von 0 kg Gesamtvolumen</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Restwert im Lager</span>
+        <strong class="stat-value mono" id="statRemainingValue">0,00 €</strong>
+        <span class="stat-meta" id="statPurchaseValue">Einkaufswert: 0,00 €</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Ø Kilopreis</span>
+        <strong class="stat-value mono" id="statAvgKgPrice">0,00 €/kg</strong>
+        <span class="stat-meta" id="statManufacturerCount">0 Hersteller verwaltet</span>
+      </div>
+    </section>
+
+    <!-- Main Navigation Tabs -->
+    <nav class="nav-tabs" role="tablist">
+      <button class="tab-btn active" data-tab="filaments" role="tab" aria-selected="true">
+        Filament-Spulen <span class="badge mono" id="tabBadgeFilaments">0</span>
+      </button>
+      <button class="tab-btn" data-tab="calculator" role="tab" aria-selected="false">
+        Projekte &amp; Kostenrechner <span class="badge mono" id="tabBadgeProjects">0</span>
+      </button>
+      <button class="tab-btn" data-tab="manufacturers" role="tab" aria-selected="false">
+        Hersteller <span class="badge mono" id="tabBadgeManufacturers">0</span>
+      </button>
+      <button class="tab-btn" data-tab="settings" role="tab" aria-selected="false">
+        Einstellungen
+      </button>
+    </nav>
+
+    <!-- TAB 1: FILAMENTS -->
+    <main id="tab-filaments" class="tab-panel active">
+      <div class="toolbar">
+        <div class="search-box">
+          <svg class="search-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="8.5" cy="8.5" r="5.5"></circle>
+            <line x1="13" y1="13" x2="17" y2="17"></line>
+          </svg>
+          <input
+            type="search"
+            id="searchInput"
+            placeholder="Suche nach Farbe, Hersteller, Material, Serie..."
+            autocomplete="off"
+          />
+        </div>
+        <div class="filters">
+          <select id="filterManufacturer" aria-label="Nach Hersteller filtern">
+            <option value="">Alle Hersteller</option>
+          </select>
+          <select id="filterMaterial" aria-label="Nach Material filtern">
+            <option value="">Alle Materialien</option>
+          </select>
+          <select id="sortSelect" aria-label="Sortierung">
+            <option value="newest">Neueste zuerst</option>
+            <option value="remaining_asc">Restmenge (aufsteigend)</option>
+            <option value="remaining_desc">Restmenge (absteigend)</option>
+            <option value="price_asc">Preis/kg (aufsteigend)</option>
+            <option value="price_desc">Preis/kg (absteigend)</option>
+            <option value="manufacturer">Hersteller (A–Z)</option>
+          </select>
+          <label class="checkbox-pill">
+            <input type="checkbox" id="filterLowOnly" />
+            <span>&lt; 200 g Rest</span>
+          </label>
+        </div>
+      </div>
+
+      <div id="filamentsGrid" class="spools-grid"></div>
+    </main>
+
+    <!-- TAB 2: PROJECTS & COST CALCULATOR -->
+    <section id="tab-calculator" class="tab-panel">
+      <!-- Create New Project Bar -->
+      <div class="card project-create-bar">
+        <form id="createProjectForm" class="project-create-form">
+          <div class="project-create-title">
+            <h2>Neues Druckprojekt anlegen</h2>
+            <p class="text-muted">Ein Projekt bündelt beliebig viele Druckplatten, Bauteile oder AMS-Farben und summiert Gewicht &amp; Kosten.</p>
+          </div>
+          <div class="project-create-inputs">
+            <div class="field-col">
+              <label for="newProjectName">Projektname *</label>
+              <input
+                type="text"
+                id="newProjectName"
+                required
+                placeholder="z. B. Teebox, Gridfinity Schublade, Helm..."
+              />
+            </div>
+            <div class="field-col">
+              <label for="newProjectPrintTime">Druckzeit (optional)</label>
+              <input
+                type="text"
+                id="newProjectPrintTime"
+                placeholder="z. B. 6h 25m"
+              />
+            </div>
+            <div class="field-col">
+              <label for="newProjectNotes">Notiz (optional)</label>
+              <input
+                type="text"
+                id="newProjectNotes"
+                placeholder="z. B. 3 Platten, 0.2mm Layer"
+              />
+            </div>
+            <div class="field-col">
+              <label for="newProjectImage">Projektbild (optional)</label>
+              <div class="new-proj-image-row">
+                <input
+                  type="file"
+                  id="newProjectImage"
+                  accept="image/*"
+                  class="file-input-compact"
+                />
+                <img id="newProjectImagePreview" class="new-proj-thumb-preview hidden" alt="Vorschau" />
+              </div>
+            </div>
+            <div class="field-col-btn">
+              <button type="submit" class="btn btn-primary">+ Projekt anlegen</button>
+            </div>
+          </div>
+        </form>
+        <input type="file" id="existingProjectImagePicker" accept="image/*" class="hidden" />
+      </div>
+
+      <!-- Projects List Container -->
+      <div id="projectsContainer" class="projects-list"></div>
+    </section>
+
+    <!-- TAB 3: MANUFACTURERS -->
+    <section id="tab-manufacturers" class="tab-panel">
+      <div class="manufacturers-layout">
+        <div class="card">
+          <div class="card-header">
+            <h2 id="mfgFormTitle">Hersteller hinzufügen</h2>
+            <p>Verwalte deine Filament-Marken. Das Leerspulengewicht hilft beim Abwiegen angebrochener Spulen.</p>
+          </div>
+          <form id="manufacturerForm">
+            <input type="hidden" id="mfgEditId" value="" />
+            <div class="form-group">
+              <label for="mfgNameInput">Name des Herstellers *</label>
+              <input
+                type="text"
+                id="mfgNameInput"
+                required
+                placeholder="z. B. Bambu Lab, Prusament, Extrudr..."
+              />
+            </div>
+            <div class="form-row two-col">
+              <div class="form-group">
+                <label for="mfgCountryInput">Land / Kürzel (optional)</label>
+                <input
+                  type="text"
+                  id="mfgCountryInput"
+                  placeholder="z. B. DE, AT, CZ, CN"
+                />
+              </div>
+              <div class="form-group">
+                <label for="mfgSpoolWeightInput">Ø Leerspule (g)</label>
+                <div class="input-with-unit">
+                  <input
+                    type="number"
+                    id="mfgSpoolWeightInput"
+                    min="0"
+                    max="1000"
+                    value="200"
+                  />
+                  <span class="unit-tag">g</span>
+                </div>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-ghost hidden" id="btnCancelMfgEdit">Abbrechen</button>
+              <button type="submit" class="btn btn-primary" id="btnSaveMfg">Hersteller speichern</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Vorhandene Hersteller</h2>
+            <p>Gängige Hersteller sind vorinstalliert und können frei ergänzt oder bearbeitet werden.</p>
+          </div>
+          <div id="manufacturersList" class="manufacturers-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: SETTINGS -->
+    <section id="tab-settings" class="tab-panel">
+      <div class="manufacturers-layout">
+        <div class="card">
+          <div class="card-header">
+            <h2>Strom- &amp; Druckerkosten</h2>
+            <p>Diese Werte werden genutzt, um bei deinen Projekten anhand der eingetragenen Druckzeit automatisch die Stromkosten zu berechnen.</p>
+          </div>
+
+          <form id="settingsForm">
+            <div class="form-group">
+              <label for="sPrinterName">Drucker-Bezeichnung (optional)</label>
+              <input
+                type="text"
+                id="sPrinterName"
+                placeholder="z. B. Bambu Lab P1S, A1, Prusa MK4..."
+              />
+            </div>
+
+            <div class="form-row two-col">
+              <div class="form-group">
+                <label for="sElectricityPrice">Strompreis (€ pro kWh) *</label>
+                <div class="input-with-unit">
+                  <input
+                    type="number"
+                    id="sElectricityPrice"
+                    min="0"
+                    step="any"
+                    required
+                    value="0.35"
+                  />
+                  <span class="unit-tag">€/kWh</span>
+                </div>
+                <div class="quick-chips" id="quickElecPriceChips">
+                  <button type="button" class="chip" data-elec-price="0.28">0,28 €</button>
+                  <button type="button" class="chip" data-elec-price="0.32">0,32 €</button>
+                  <button type="button" class="chip" data-elec-price="0.35">0,35 €</button>
+                  <button type="button" class="chip" data-elec-price="0.40">0,40 €</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="sPrinterPowerKwh">Stromverbrauch Drucker (kWh pro Std.) *</label>
+                <div class="input-with-unit">
+                  <input
+                    type="number"
+                    id="sPrinterPowerKwh"
+                    min="0"
+                    step="any"
+                    required
+                    value="0.12"
+                  />
+                  <span class="unit-tag">kWh</span>
+                </div>
+                <div class="form-hint" id="sWattsHint">Entspricht Ø 120 Watt Leistungsaufnahme im Druckbetrieb.</div>
+                <div class="quick-chips" id="quickPowerChips">
+                  <button type="button" class="chip" data-power-kwh="0.06" title="ca. 60 W (z. B. A1 mini PLA)">0,06 kWh (60W)</button>
+                  <button type="button" class="chip" data-power-kwh="0.12" title="ca. 120 W (z. B. P1S / X1C / MK4 PLA)">0,12 kWh (120W)</button>
+                  <button type="button" class="chip" data-power-kwh="0.18" title="ca. 180 W (z. B. PETG / höheres Heizbett)">0,18 kWh (180W)</button>
+                  <button type="button" class="chip" data-power-kwh="0.28" title="ca. 280 W (z. B. ABS / ASA)">0,28 kWh (280W)</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Einstellungen speichern</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Vorschau Stromkosten</h2>
+            <p>So wirken sich deine aktuellen Einstellungen auf die Druckzeit aus:</p>
+          </div>
+
+          <div class="price-converter-box" style="margin-bottom:16px;">
+            <div class="price-converter-title">Stromkosten pro Stunde Druckzeit</div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;">
+              <strong class="mono" style="font-size:1.65rem;color:var(--accent);" id="sPreviewPerHour">0,04 € / Std.</strong>
+              <span class="mono text-muted" id="sPreviewWattsSub">0,12 kWh × 0,35 €/kWh</span>
+            </div>
+          </div>
+
+          <table class="project-items-table" style="margin-bottom:0;">
+            <thead>
+              <tr>
+                <th>Beispiel-Druckdauer</th>
+                <th>Verbrauch</th>
+                <th>Stromkosten</th>
+              </tr>
+            </thead>
+            <tbody id="sPreviewTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- MODAL: ADD / EDIT FILAMENT -->
+  <div class="modal-backdrop hidden" id="filamentModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="modalTitle">Neue Filament-Spule anlegen</h2>
+      </div>
+
+      <form id="filamentForm">
+        <input type="hidden" id="filamentId" value="" />
+
+        <div class="form-row two-col">
+          <div class="form-group">
+            <div class="label-with-link">
+              <label for="fManufacturer">Hersteller *</label>
+              <button type="button" class="link-btn" id="btnQuickAddMfg">+ Neuer Hersteller</button>
+            </div>
+            <select id="fManufacturer" required></select>
+          </div>
+
+          <div class="form-group">
+            <label for="fMaterial">Material / Typ *</label>
+            <input
+              type="text"
+              id="fMaterial"
+              list="materialSuggestions"
+              required
+              placeholder="z. B. PLA, PETG, ASA..."
+              value="PLA"
+            />
+            <datalist id="materialSuggestions">
+              <option value="PLA"></option>
+              <option value="PLA+"></option>
+              <option value="PLA Matte"></option>
+              <option value="PLA Silk"></option>
+              <option value="PETG"></option>
+              <option value="ABS"></option>
+              <option value="ASA"></option>
+              <option value="TPU 95A"></option>
+              <option value="PA-CF (Nylon)"></option>
+              <option value="PC (Polycarbonat)"></option>
+              <option value="PLA Wood"></option>
+              <option value="PETG-CF"></option>
+            </datalist>
+          </div>
+        </div>
+
+        <div class="form-row two-col">
+          <div class="form-group">
+            <label for="fColorName">Farbbezeichnung *</label>
+            <input
+              type="text"
+              id="fColorName"
+              required
+              placeholder="z. B. Galaxy Black, Signalweiß, Rubinrot"
+            />
+          </div>
+          <div class="form-group">
+            <label for="fSeries">Serie / Zusatz (optional)</label>
+            <input
+              type="text"
+              id="fSeries"
+              placeholder="z. B. Basic, Matte, PolyTerra, High Speed"
+            />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Farbvorschau &amp; Farbcode</label>
+          <div class="color-picker-row">
+            <input type="color" id="fColorHex" value="#FF5F1F" aria-label="Farbe wählen" />
+            <input type="text" id="fColorHexText" value="#FF5F1F" maxlength="7" class="hex-input mono" />
+            <div class="color-swatches" id="colorSwatches">
+              <button type="button" class="swatch" data-hex="#000000" data-name="Schwarz" style="background:#000000" title="Schwarz (#000000)"></button>
+              <button type="button" class="swatch" data-hex="#FFFFFF" data-name="Weiß" style="background:#FFFFFF" title="Weiß (#FFFFFF)"></button>
+              <button type="button" class="swatch" data-hex="#9CA3AF" data-name="Grau / Silber" style="background:#9CA3AF" title="Grau / Silber (#9CA3AF)"></button>
+              <button type="button" class="swatch" data-hex="#FF1E1E" data-name="Rot" style="background:#FF1E1E" title="Rot (#FF1E1E)"></button>
+              <button type="button" class="swatch" data-hex="#FF5F1F" data-name="Orange" style="background:#FF5F1F" title="Orange (#FF5F1F)"></button>
+              <button type="button" class="swatch" data-hex="#FFE600" data-name="Gelb" style="background:#FFE600" title="Gelb (#FFE600)"></button>
+              <button type="button" class="swatch" data-hex="#00D13B" data-name="Grün" style="background:#00D13B" title="Grün (#00D13B)"></button>
+              <button type="button" class="swatch" data-hex="#00D4FF" data-name="Cyan / Türkis" style="background:#00D4FF" title="Cyan / Türkis (#00D4FF)"></button>
+              <button type="button" class="swatch" data-hex="#0055FF" data-name="Blau" style="background:#0055FF" title="Blau (#0055FF)"></button>
+              <button type="button" class="swatch" data-hex="#8C1AFF" data-name="Violett" style="background:#8C1AFF" title="Violett (#8C1AFF)"></button>
+              <button type="button" class="swatch" data-hex="#FF1493" data-name="Pink / Magenta" style="background:#FF1493" title="Pink / Magenta (#FF1493)"></button>
+              <button type="button" class="swatch" data-hex="#A05A2C" data-name="Holz / Braun" style="background:#A05A2C" title="Holz / Braun (#A05A2C)"></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Price & Weight Section with Live KG Conversion -->
+        <div class="price-converter-box">
+          <div class="price-converter-title">
+            Kaufpreis &amp; Spulenmenge — automatische kg-Umrechnung
+          </div>
+          <div class="form-row three-col">
+            <div class="form-group">
+              <label for="fPurchasePrice">Kaufpreis der Spule *</label>
+              <div class="input-with-unit">
+                <input
+                  type="number"
+                  id="fPurchasePrice"
+                  min="0"
+                  step="0.01"
+                  required
+                  placeholder="22.99"
+                />
+                <span class="unit-tag">€</span>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="fInitialWeight">Gekaufte Menge *</label>
+              <div class="input-with-unit">
+                <input
+                  type="number"
+                  id="fInitialWeight"
+                  min="1"
+                  step="1"
+                  required
+                  value="1000"
+                />
+                <span class="unit-tag">g</span>
+              </div>
+              <div class="quick-chips">
+                <button type="button" class="chip" data-init-weight="250">250g</button>
+                <button type="button" class="chip" data-init-weight="500">500g</button>
+                <button type="button" class="chip" data-init-weight="750">750g</button>
+                <button type="button" class="chip" data-init-weight="1000">1 kg</button>
+                <button type="button" class="chip" data-init-weight="2000">2 kg</button>
+              </div>
+            </div>
+
+            <div class="kg-live-badge">
+              <span class="kg-live-label">Preis pro Kilogramm</span>
+              <strong class="kg-live-value mono" id="fLivePricePerKg">0,00 € / kg</strong>
+              <span class="kg-live-sub mono" id="fLivePricePerGram">0,00 ct / g</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row two-col">
+          <div class="form-group">
+            <label for="fRemainingWeight">Aktuelle Restmenge (g) *</label>
+            <div class="input-with-unit">
+              <input
+                type="number"
+                id="fRemainingWeight"
+                min="0"
+                step="any"
+                required
+                value="1000"
+              />
+              <span class="unit-tag">g</span>
+            </div>
+            <div class="form-hint">Wird beim Neuanlegen automatisch mit der gekauften Menge befüllt.</div>
+          </div>
+
+          <div class="form-group">
+            <label for="fNotes">Notiz / Druckparameter (optional)</label>
+            <input
+              type="text"
+              id="fNotes"
+              placeholder="z. B. 215°C / 60°C, vor Druck trocknen..."
+            />
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="btnCancelModal">Abbrechen</button>
+          <button type="button" class="btn btn-secondary" id="btnSaveAndNext" title="Speichert diese Spule und behält Hersteller, Typ, Preis und Menge für die nächste Farbe im Set bei">
+            Speichern &amp; nächste Farbe
+          </button>
+          <button type="submit" class="btn btn-primary" id="btnSubmitFilament">Spule speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
