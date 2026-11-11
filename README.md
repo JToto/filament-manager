@@ -2,6 +2,9 @@
 
 <img width="2496" height="3206" alt="image" src="https://github.com/user-attachments/assets/eae812de-50e5-4b02-9c74-6ea17f3e77e5" />
 
+<img width="1280" height="873" alt="image" src="https://github.com/user-attachments/assets/468927a6-8999-494c-8478-d31b04596838" />
+
+
 Eine übersichtliche, schnelle Web-App im Industrial-Light-Design (`#FF5F1F`) zum Verwalten von 3D-Druck Filament-Spulen, Herstellern und mehrteiligen Druckprojekten inkl. Material- und Stromkosten-Kalkulation.
 
 Alle Daten werden lokal und persistent in einer **SQLite-Datenbank** (`data/filaments.db`) gespeichert – ganz ohne externe `npm`-Abhängigkeiten (nutzt das in Node.js 22+ integrierte `node:sqlite`).
