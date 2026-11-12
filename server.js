@@ -1,15 +1,20 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync, execFile } = require('node:child_process');
 const { DatabaseSync } = require('node:sqlite');
 
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
+const FILES_DIR = path.join(DATA_DIR, 'files');
 const DB_PATH = path.join(DATA_DIR, 'filaments.db');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+if (!fs.existsSync(FILES_DIR)) {
+  fs.mkdirSync(FILES_DIR, { recursive: true });
 }
 
 const db = new DatabaseSync(DB_PATH);
@@ -49,6 +54,8 @@ db.exec(`
     notes TEXT DEFAULT '',
     print_time TEXT DEFAULT '',
     image_data TEXT DEFAULT '',
+    threemf_filename TEXT DEFAULT '',
+    threemf_stored_name TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -59,6 +66,7 @@ db.exec(`
     label TEXT DEFAULT '',
     weight_g REAL NOT NULL,
     snapshot_name TEXT DEFAULT '',
+    snapshot_material TEXT DEFAULT '',
     snapshot_color_hex TEXT DEFAULT '#FF5F1F',
     snapshot_price_per_kg REAL NOT NULL DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now')),
@@ -72,13 +80,32 @@ db.exec(`
   );
 `);
 
-// Ensure image_data and print_time columns exist on projects table (for existing databases)
+// Ensure image_data, print_time, and 3mf columns exist on projects table (for existing databases)
 const projCols = db.prepare(`PRAGMA table_info(projects)`).all();
 if (!projCols.some(c => c.name === 'image_data')) {
   db.exec(`ALTER TABLE projects ADD COLUMN image_data TEXT DEFAULT ''`);
 }
 if (!projCols.some(c => c.name === 'print_time')) {
   db.exec(`ALTER TABLE projects ADD COLUMN print_time TEXT DEFAULT ''`);
+}
+if (!projCols.some(c => c.name === 'threemf_filename')) {
+  db.exec(`ALTER TABLE projects ADD COLUMN threemf_filename TEXT DEFAULT ''`);
+}
+if (!projCols.some(c => c.name === 'threemf_stored_name')) {
+  db.exec(`ALTER TABLE projects ADD COLUMN threemf_stored_name TEXT DEFAULT ''`);
+}
+
+// Ensure snapshot_material column exists on project_items table
+const itemCols = db.prepare(`PRAGMA table_info(project_items)`).all();
+if (!itemCols.some(c => c.name === 'snapshot_material')) {
+  db.exec(`ALTER TABLE project_items ADD COLUMN snapshot_material TEXT DEFAULT ''`);
+  db.exec(`
+    UPDATE project_items
+    SET snapshot_material = COALESCE(
+      (SELECT f.material FROM filaments f WHERE f.id = project_items.filament_id),
+      ''
+    )
+  `);
 }
 
 // Seed default settings if missing
@@ -197,7 +224,7 @@ function parseBody(req) {
     let body = '';
     req.on('data', chunk => {
       body += chunk;
-      if (body.length > 2 * 1024 * 1024) {
+      if (body.length > 5 * 1024 * 1024) {
         reject(new Error('Payload too large'));
       }
     });
@@ -211,6 +238,281 @@ function parseBody(req) {
     });
     req.on('error', reject);
   });
+}
+
+function parseRawBody(req, maxBytes = 100 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    req.on('data', chunk => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        reject(new Error('Datei ist zu groß (max. 100 MB).'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', reject);
+  });
+}
+
+function formatSecondsToPrintTime(seconds) {
+  const sec = Math.round(Number(seconds) || 0);
+  if (sec <= 0) return '';
+  const totalMinutes = Math.max(1, Math.round(sec / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0 && minutes > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (hours > 0) {
+    return `${hours}h`;
+  }
+  return `${minutes}m`;
+}
+
+function hexToRgb(hex) {
+  const clean = String(hex || '').trim().replace(/^#/, '').slice(0, 6);
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return null;
+  return {
+    r: parseInt(clean.slice(0, 2), 16),
+    g: parseInt(clean.slice(2, 4), 16),
+    b: parseInt(clean.slice(4, 6), 16)
+  };
+}
+
+function findBestMatchingSpool(materialType, colorHex, allFilaments) {
+  const normMat = String(materialType || '').trim().toLowerCase();
+  if (!normMat || !Array.isArray(allFilaments) || allFilaments.length === 0) return null;
+
+  // 1. Exact material match (case-insensitive)
+  let candidates = allFilaments.filter(
+    f => String(f.material || '').trim().toLowerCase() === normMat
+  );
+
+  // 2. Base material match (e.g. "PLA Matte" or "PLA+" matching "PLA")
+  if (candidates.length === 0) {
+    const baseMat = normMat.split(/[\s+-]/)[0];
+    if (baseMat) {
+      candidates = allFilaments.filter(f => {
+        const fMat = String(f.material || '').trim().toLowerCase();
+        return fMat === baseMat || fMat.startsWith(baseMat + ' ') || fMat.startsWith(baseMat + '+') || fMat.startsWith(baseMat + '-');
+      });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  const targetRgb = hexToRgb(colorHex);
+  if (!targetRgb) return candidates[0];
+
+  let best = candidates[0];
+  let bestDist = Infinity;
+  for (const cand of candidates) {
+    const rgb = hexToRgb(cand.color_hex);
+    if (!rgb) continue;
+    const dist =
+      Math.pow(rgb.r - targetRgb.r, 2) +
+      Math.pow(rgb.g - targetRgb.g, 2) +
+      Math.pow(rgb.b - targetRgb.b, 2);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = cand;
+    }
+  }
+  return best;
+}
+
+function parseXmlAttributes(tagStr) {
+  const attrs = {};
+  const re = /([a-zA-Z0-9_:-]+)\s*=\s*"([^"]*)"/g;
+  let m;
+  while ((m = re.exec(tagStr)) !== null) {
+    attrs[m[1]] = m[2];
+  }
+  return attrs;
+}
+
+function parseSliceInfoXml(xml) {
+  const plateBlocks = [...String(xml || '').matchAll(/<plate\b[^>]*>([\s\S]*?)<\/plate>/gi)];
+  let totalSec = 0;
+  const extractedFilaments = [];
+
+  if (plateBlocks.length > 0) {
+    plateBlocks.forEach((match, idx) => {
+      const block = match[1];
+      let plateIndex = idx + 1;
+      let plateName = '';
+
+      const metaMatches = [...block.matchAll(/<metadata\b([^>]*)\/?>/gi)];
+      for (const mm of metaMatches) {
+        const attrs = parseXmlAttributes(mm[1]);
+        if (attrs.key === 'index' && attrs.value) {
+          plateIndex = Number(attrs.value) || plateIndex;
+        } else if (attrs.key === 'prediction' && attrs.value) {
+          const sec = Number(attrs.value);
+          if (Number.isFinite(sec) && sec > 0) {
+            totalSec += sec;
+          }
+        } else if ((attrs.key === 'plate_name' || attrs.key === 'name') && attrs.value) {
+          plateName = attrs.value.trim();
+        }
+      }
+
+      const objNames = [...block.matchAll(/<object\b([^>]*)\/?>/gi)]
+        .map(om => parseXmlAttributes(om[1]))
+        .filter(a => a.name && a.skipped !== 'true')
+        .map(a => a.name.replace(/\.(stl|step|stp|obj|3mf)$/i, '').trim())
+        .filter(Boolean);
+      const uniqueObjNames = [...new Set(objNames)];
+      const objSuffix =
+        uniqueObjNames.length === 1 && !/^object_\d+$/i.test(uniqueObjNames[0])
+          ? uniqueObjNames[0]
+          : '';
+
+      const filMatches = [...block.matchAll(/<filament\b([^>]*)\/?>/gi)];
+      for (const fm of filMatches) {
+        const attrs = parseXmlAttributes(fm[1]);
+        const usedG = Number(attrs.used_g);
+        if (!Number.isFinite(usedG) || usedG <= 0) continue;
+
+        const type = String(attrs.type || 'PLA').trim();
+        const rawColor = String(attrs.color || '#FF5F1F').trim();
+        const colorHex = rawColor.startsWith('#') ? rawColor.slice(0, 7) : `#${rawColor.slice(0, 6)}`;
+        const slotId = attrs.id || '';
+
+        let labelPrefix = `Platte ${plateIndex}`;
+        if (plateName) {
+          labelPrefix = `Platte ${plateIndex} (${plateName})`;
+        } else if (objSuffix) {
+          labelPrefix = `Platte ${plateIndex} – ${objSuffix}`;
+        }
+
+        const label =
+          filMatches.length > 1 && slotId
+            ? `${labelPrefix} · AMS #${slotId} (${type})`
+            : `${labelPrefix} (${type})`;
+
+        extractedFilaments.push({
+          label,
+          material: type,
+          color_hex: /^#[0-9a-fA-F]{6}$/.test(colorHex) ? colorHex : '#FF5F1F',
+          weight_g: Number(usedG.toFixed(1))
+        });
+      }
+    });
+  }
+
+  return { totalSec, extractedFilaments };
+}
+
+function inspectThreeMfFile(filePath) {
+  const result = {
+    thumbnailDataUrl: '',
+    printTime: '',
+    totalSeconds: 0,
+    filaments: []
+  };
+
+  let entries = [];
+  try {
+    const listOut = execFileSync('unzip', ['-Z1', filePath], {
+      encoding: 'utf8',
+      maxBuffer: 10 * 1024 * 1024
+    });
+    entries = listOut
+      .split(/\r?\n/)
+      .map(s => s.trim())
+      .filter(Boolean);
+  } catch (err) {
+    return result;
+  }
+
+  // 1. Extract Thumbnail Image (Bambu Studio / OrcaSlicer / PrusaSlicer)
+  const preferredThumbs = [
+    'Metadata/plate_1.png',
+    'Auxiliaries/.thumbnails/thumbnail_3mf.png',
+    'Auxiliaries/.thumbnails/thumbnail_middle.png',
+    'Metadata/thumbnail.png',
+    '3D/Metadata/thumbnail.png',
+    'Metadata/top_1.png'
+  ];
+
+  let chosenThumb = preferredThumbs.find(t => entries.includes(t));
+  if (!chosenThumb) {
+    chosenThumb = entries.find(e => /^Metadata\/plate_\d+\.png$/i.test(e) && !e.includes('small'));
+  }
+  if (!chosenThumb) {
+    chosenThumb = entries.find(e => /\.png$/i.test(e) && /thumb|plate/i.test(e));
+  }
+
+  if (chosenThumb) {
+    try {
+      const imgBuf = execFileSync('unzip', ['-p', filePath, chosenThumb], {
+        maxBuffer: 15 * 1024 * 1024
+      });
+      if (imgBuf && imgBuf.length > 0) {
+        result.thumbnailDataUrl = `data:image/png;base64,${imgBuf.toString('base64')}`;
+      }
+    } catch (_) {
+      // Ignore thumbnail extraction error
+    }
+  }
+
+  // 2. Extract Slice Info (Metadata/slice_info.config) if already sliced
+  let parsed = { totalSec: 0, extractedFilaments: [] };
+  if (entries.includes('Metadata/slice_info.config')) {
+    try {
+      const xml = execFileSync('unzip', ['-p', filePath, 'Metadata/slice_info.config'], {
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024
+      });
+      parsed = parseSliceInfoXml(xml);
+    } catch (_) {}
+  }
+
+  // 3. If the .3mf is unsliced (e.g. MakerWorld download or normal Save in Bambu Studio),
+  //    run Bambu Studio CLI headless slicer to compute exact print time & filament weights!
+  const bambuCliBin = '/Applications/BambuStudio.app/Contents/MacOS/BambuStudio';
+  if (parsed.extractedFilaments.length === 0 && fs.existsSync(bambuCliBin)) {
+    const cliDataDir = '/tmp/spoolmate_bambu_datadir';
+    const tmpOutDir = `/tmp/spoolmate_slice_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    try {
+      fs.mkdirSync(cliDataDir, { recursive: true });
+      fs.mkdirSync(tmpOutDir, { recursive: true });
+      execFileSync(
+        bambuCliBin,
+        ['--datadir', cliDataDir, '--slice', '0', '--outputdir', tmpOutDir, '--export-3mf', 'sliced.3mf', filePath],
+        { timeout: 45000, stdio: 'ignore' }
+      );
+      const sliced3mfPath = path.join(tmpOutDir, 'sliced.3mf');
+      if (fs.existsSync(sliced3mfPath)) {
+        const slicedXml = execFileSync('unzip', ['-p', sliced3mfPath, 'Metadata/slice_info.config'], {
+          encoding: 'utf8',
+          maxBuffer: 10 * 1024 * 1024
+        });
+        parsed = parseSliceInfoXml(slicedXml);
+      }
+    } catch (_) {
+      // Ignore CLI slice error and fall back below
+    } finally {
+      try {
+        fs.rmSync(tmpOutDir, { recursive: true, force: true });
+      } catch (_) {}
+    }
+  }
+
+  if (parsed.totalSec > 0) {
+    result.totalSeconds = parsed.totalSec;
+    result.printTime = formatSecondsToPrintTime(parsed.totalSec);
+  }
+  result.filaments = parsed.extractedFilaments;
+
+  return result;
 }
 
 function computePricePerKg(purchasePrice, initialWeightG) {
@@ -346,6 +648,7 @@ function listProjects() {
       id: row.id,
       project_id: row.project_id,
       filament_id: row.filament_id,
+      material: row.filament_id ? row.filament_material : (row.snapshot_material || ''),
       label: row.label || '',
       weight_g: weightG,
       price_per_kg: pricePerKg,
@@ -650,10 +953,11 @@ const server = http.createServer(async (req, res) => {
         if (snap) {
           db.prepare(`
             UPDATE project_items
-            SET snapshot_name = ?, snapshot_color_hex = ?, snapshot_price_per_kg = ?
+            SET snapshot_name = ?, snapshot_material = ?, snapshot_color_hex = ?, snapshot_price_per_kg = ?
             WHERE filament_id = ?
           `).run(
             `${snap.manufacturer_name} ${snap.material} (${snap.color_name})`,
+            snap.material,
             snap.color_hex,
             snap.price_per_kg,
             filamentId
@@ -767,9 +1071,206 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (req.method === 'DELETE') {
+        const current = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
+        if (current && current.threemf_stored_name) {
+          const oldPath = path.join(FILES_DIR, path.basename(current.threemf_stored_name));
+          if (fs.existsSync(oldPath)) {
+            try { fs.unlinkSync(oldPath); } catch (_) {}
+          }
+        }
         db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
         return sendJson(res, 200, { projects: listProjects() });
       }
+    }
+
+    const projectThreeMfMatch = pathname.match(/^\/api\/projects\/(\d+)\/threemf$/);
+    if (projectThreeMfMatch) {
+      const projectId = Number(projectThreeMfMatch[1]);
+      const current = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
+      if (!current) {
+        return sendJson(res, 404, { error: 'Projekt nicht gefunden.' });
+      }
+
+      if (req.method === 'POST') {
+        const rawFilename = req.headers['x-filename']
+          ? decodeURIComponent(String(req.headers['x-filename']))
+          : 'projekt.3mf';
+        const cleanFilename = path.basename(rawFilename).replace(/[^\w.\- ()äöüÄÖÜß]/g, '_') || 'projekt.3mf';
+        if (!cleanFilename.toLowerCase().endsWith('.3mf')) {
+          return sendJson(res, 400, { error: 'Bitte eine gültige .3mf Datei wählen.' });
+        }
+
+        const buf = await parseRawBody(req);
+        if (!buf || buf.length < 4) {
+          return sendJson(res, 400, { error: 'Leere oder ungültige .3mf Datei.' });
+        }
+
+        // Remove previous 3mf file if exists
+        if (current.threemf_stored_name) {
+          const oldPath = path.join(FILES_DIR, path.basename(current.threemf_stored_name));
+          if (fs.existsSync(oldPath)) {
+            try { fs.unlinkSync(oldPath); } catch (_) {}
+          }
+        }
+
+        const storedName = `project_${projectId}_${Date.now()}_${cleanFilename}`;
+        const storedPath = path.join(FILES_DIR, storedName);
+        fs.writeFileSync(storedPath, buf);
+
+        // Inspect 3mf archive for thumbnail, print time & sliced filament weights
+        const inspected = inspectThreeMfFile(storedPath);
+        const overwriteImage = req.headers['x-overwrite-image'] === '1';
+        const replaceItems = req.headers['x-replace-items'] === '1';
+
+        const nextImageData =
+          inspected.thumbnailDataUrl && (!current.image_data || overwriteImage)
+            ? inspected.thumbnailDataUrl
+            : (current.image_data || '');
+
+        const existingItemsCount = db
+          .prepare('SELECT COUNT(*) as cnt FROM project_items WHERE project_id = ?')
+          .get(projectId)?.cnt || 0;
+
+        let nextPrintTime = current.print_time || '';
+        if (inspected.printTime) {
+          if (existingItemsCount > 0 && !replaceItems && current.print_time) {
+            const prevSec = Math.round(parsePrintTimeToHours(current.print_time) * 3600);
+            nextPrintTime = formatSecondsToPrintTime(prevSec + inspected.totalSeconds);
+          } else {
+            nextPrintTime = inspected.printTime;
+          }
+        }
+
+        db.prepare(`
+          UPDATE projects
+          SET threemf_filename = ?,
+              threemf_stored_name = ?,
+              image_data = ?,
+              print_time = ?
+          WHERE id = ?
+        `).run(cleanFilename, storedName, nextImageData, nextPrintTime, projectId);
+
+        let itemsImported = 0;
+
+        if (inspected.filaments.length > 0) {
+          if (replaceItems && existingItemsCount > 0) {
+            db.prepare('DELETE FROM project_items WHERE project_id = ?').run(projectId);
+          }
+
+          const allFilaments = listFilaments();
+          const insertItem = db.prepare(`
+            INSERT INTO project_items (
+              project_id, filament_id, label, weight_g,
+              snapshot_name, snapshot_material, snapshot_color_hex, snapshot_price_per_kg
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+
+          for (const fil of inspected.filaments) {
+            const matched = findBestMatchingSpool(fil.material, fil.color_hex, allFilaments);
+            if (matched) {
+              insertItem.run(
+                projectId,
+                matched.id,
+                fil.label,
+                fil.weight_g,
+                `${matched.manufacturer_name} ${matched.material} (${matched.color_name})`,
+                matched.material,
+                matched.color_hex,
+                matched.price_per_kg
+              );
+            } else {
+              insertItem.run(
+                projectId,
+                null,
+                fil.label,
+                fil.weight_g,
+                `Aus 3MF: ${fil.material}`,
+                fil.material,
+                fil.color_hex,
+                0
+              );
+            }
+            itemsImported++;
+          }
+        }
+
+        return sendJson(res, 200, {
+          projects: listProjects(),
+          imported: {
+            filename: cleanFilename,
+            thumbnailImported: Boolean(inspected.thumbnailDataUrl && (!current.image_data || overwriteImage)),
+            printTime: inspected.printTime || '',
+            itemsImported,
+            availableSlicedFilaments: inspected.filaments.length
+          }
+        });
+      }
+
+      if (req.method === 'GET') {
+        if (!current.threemf_stored_name) {
+          return sendJson(res, 404, { error: 'Keine .3mf Datei für dieses Projekt hinterlegt.' });
+        }
+        const storedPath = path.join(FILES_DIR, path.basename(current.threemf_stored_name));
+        if (!fs.existsSync(storedPath)) {
+          return sendJson(res, 404, { error: '.3mf Datei wurde auf der Festplatte nicht gefunden.' });
+        }
+        const downloadName = current.threemf_filename || 'projekt.3mf';
+        res.writeHead(200, {
+          'Content-Type': 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml',
+          'Content-Disposition': `attachment; filename="${encodeURIComponent(downloadName)}"`
+        });
+        fs.createReadStream(storedPath).pipe(res);
+        return;
+      }
+
+      if (req.method === 'DELETE') {
+        if (current.threemf_stored_name) {
+          const oldPath = path.join(FILES_DIR, path.basename(current.threemf_stored_name));
+          if (fs.existsSync(oldPath)) {
+            try { fs.unlinkSync(oldPath); } catch (_) {}
+          }
+        }
+        db.prepare(`
+          UPDATE projects
+          SET threemf_filename = '', threemf_stored_name = ''
+          WHERE id = ?
+        `).run(projectId);
+        return sendJson(res, 200, { projects: listProjects() });
+      }
+    }
+
+    const openSlicerMatch = pathname.match(/^\/api\/projects\/(\d+)\/open-slicer$/);
+    if (openSlicerMatch && req.method === 'POST') {
+      const projectId = Number(openSlicerMatch[1]);
+      const current = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
+      if (!current || !current.threemf_stored_name) {
+        return sendJson(res, 404, { error: 'Keine .3mf Datei an dieses Projekt angehängt.' });
+      }
+      const storedPath = path.join(FILES_DIR, path.basename(current.threemf_stored_name));
+      if (!fs.existsSync(storedPath)) {
+        return sendJson(res, 404, { error: 'Die .3mf Datei wurde auf dem Datenträger nicht gefunden.' });
+      }
+
+      await new Promise((resolve, reject) => {
+        const appPath = fs.existsSync('/Applications/BambuStudio.app')
+          ? '/Applications/BambuStudio.app'
+          : 'BambuStudio';
+        execFile('/usr/bin/open', ['-a', appPath, storedPath], err => {
+          if (!err) return resolve();
+          execFile('/usr/bin/open', ['-b', 'com.bambulab.bambu-studio', storedPath], err2 => {
+            if (!err2) return resolve();
+            execFile('/usr/bin/open', [storedPath], err3 => {
+              if (!err3) return resolve();
+              reject(new Error('Bambu Studio konnte nicht geöffnet werden.'));
+            });
+          });
+        });
+      });
+
+      return sendJson(res, 200, {
+        ok: true,
+        filename: current.threemf_filename
+      });
     }
 
     const projectItemsMatch = pathname.match(/^\/api\/projects\/(\d+)\/items$/);
@@ -795,14 +1296,15 @@ const server = http.createServer(async (req, res) => {
       db.prepare(`
         INSERT INTO project_items (
           project_id, filament_id, label, weight_g,
-          snapshot_name, snapshot_color_hex, snapshot_price_per_kg
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          snapshot_name, snapshot_material, snapshot_color_hex, snapshot_price_per_kg
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         projectId,
         filamentId,
         label,
         weightG,
         `${snap.manufacturer_name} ${snap.material} (${snap.color_name})`,
+        snap.material,
         snap.color_hex,
         snap.price_per_kg
       );
@@ -850,9 +1352,30 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 400, { error: 'Bitte ein gültiges Gewicht (> 0 g) eingeben.' });
         }
 
+        const existingItem = db.prepare(`
+          SELECT pi.*, f.material AS current_material
+          FROM project_items pi
+          LEFT JOIN filaments f ON f.id = pi.filament_id
+          WHERE pi.id = ?
+        `).get(itemId);
+
+        if (!existingItem) {
+          return sendJson(res, 404, { error: 'Projektposition nicht gefunden.' });
+        }
+
         const snap = getFilamentSnapshot(filamentId);
         if (!snap) {
           return sendJson(res, 404, { error: 'Filament nicht gefunden.' });
+        }
+
+        const requiredMaterial = (existingItem.current_material || existingItem.snapshot_material || '').trim();
+        if (
+          requiredMaterial &&
+          requiredMaterial.toLowerCase() !== String(snap.material || '').trim().toLowerCase()
+        ) {
+          return sendJson(res, 400, {
+            error: `Materialwechsel nicht erlaubt: Diese Position erfordert ${requiredMaterial} (gewählt: ${snap.material}).`
+          });
         }
 
         db.prepare(`
@@ -861,6 +1384,7 @@ const server = http.createServer(async (req, res) => {
               label = ?,
               weight_g = ?,
               snapshot_name = ?,
+              snapshot_material = ?,
               snapshot_color_hex = ?,
               snapshot_price_per_kg = ?
           WHERE id = ?
@@ -869,6 +1393,7 @@ const server = http.createServer(async (req, res) => {
           label,
           weightG,
           `${snap.manufacturer_name} ${snap.material} (${snap.color_name})`,
+          snap.material,
           snap.color_hex,
           snap.price_per_kg,
           itemId

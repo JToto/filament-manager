@@ -9,8 +9,42 @@ const state = {
   },
   newProjectImageData: '',
   targetImageProjectId: null,
+  targetThreeMfProjectId: null,
   remainingTouchedInModal: false
 };
+
+async function uploadThreeMfForProject(projectId, file, options = {}) {
+  const headers = {
+    'Content-Type': 'application/octet-stream',
+    'X-Filename': encodeURIComponent(file.name),
+    'X-Overwrite-Image': options.overwriteImage ? '1' : '0',
+    'X-Replace-Items': options.replaceItems ? '1' : '0'
+  };
+
+  const res = await fetch(`/api/projects/${projectId}/threemf`, {
+    method: 'POST',
+    headers,
+    body: file
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || 'Fehler beim Hochladen der .3mf Datei');
+  }
+  return data;
+}
+
+function formatThreeMfImportSummary(imported) {
+  if (!imported) return '.3mf Datei gespeichert';
+  const details = [];
+  if (imported.thumbnailImported) details.push('Vorschaubild');
+  if (imported.printTime) details.push(`Druckzeit (${imported.printTime})`);
+  if (imported.itemsImported > 0) details.push(`${imported.itemsImported} Filament-Position(en)`);
+
+  if (details.length > 0) {
+    return `.3mf gespeichert — Auto-Import: ${details.join(', ')}`;
+  }
+  return `„${imported.filename}“ angehängt`;
+}
 
 function compressImageFile(file, maxSize = 360) {
   return new Promise((resolve, reject) => {
@@ -324,11 +358,17 @@ function renderFilamentsGrid() {
 }
 
 // --- Projects & Multi-Filament Cost Calculator Rendering ---
-function buildFilamentOptionsHtml(selectedId = null) {
-  if (state.filaments.length === 0) {
-    return `<option value="">Bitte zuerst Spulen im Bestand anlegen</option>`;
+function buildFilamentOptionsHtml(selectedId = null, filterMaterial = null) {
+  const list = filterMaterial
+    ? state.filaments.filter(
+        f => String(f.material || '').trim().toLowerCase() === String(filterMaterial).trim().toLowerCase()
+      )
+    : state.filaments;
+
+  if (list.length === 0) {
+    return `<option value="">${filterMaterial ? `Keine ${escapeHtml(filterMaterial)}-Spulen im Bestand` : 'Bitte zuerst Spulen im Bestand anlegen'}</option>`;
   }
-  return state.filaments.map(f => {
+  return list.map(f => {
     const isSel = selectedId && Number(selectedId) === Number(f.id) ? 'selected' : '';
     return `<option value="${f.id}" ${isSel}>${escapeHtml(f.manufacturer_name)} — ${escapeHtml(f.material)} ${escapeHtml(f.color_name)} (${formatEur(f.price_per_kg)}/kg · Rest: ${formatGrams(f.remaining_weight_g)})</option>`;
   }).join('');
@@ -364,12 +404,19 @@ function renderProjects(preselectFilamentId = null) {
           const rowSelectOptions =
             (!item.filament_id
               ? `<option value="" selected>${escapeHtml(item.filament_name)}</option>`
-              : '') + buildFilamentOptionsHtml(item.filament_id);
+              : '') + buildFilamentOptionsHtml(item.filament_id, item.material || null);
 
           return `
             <tr data-item-row="${item.id}" data-item-label="${escapeHtml(item.label)}">
               <td>
-                <strong>${escapeHtml(item.label || `Position ${idx + 1}`)}</strong>
+                <input
+                  type="text"
+                  class="inline-label-input"
+                  value="${escapeHtml(item.label || `Position ${idx + 1}`)}"
+                  data-item-label-input="${item.id}"
+                  placeholder="Bezeichnung..."
+                  title="Klicken, um die Bezeichnung direkt zu ändern"
+                />
               </td>
               <td>
                 <div class="filament-cell">
@@ -377,7 +424,7 @@ function renderProjects(preselectFilamentId = null) {
                   <select
                     class="inline-filament-select"
                     data-item-filament-select="${item.id}"
-                    title="Filament-Spule wechseln — Preis wird sofort neu berechnet"
+                    title="Andere ${escapeHtml(item.material || '')}-Spule wählen — Preis wird sofort neu berechnet"
                   >
                     ${rowSelectOptions}
                   </select>
@@ -488,6 +535,49 @@ function renderProjects(preselectFilamentId = null) {
             <div class="project-title-block">
               <h3>${escapeHtml(project.name)}</h3>
               ${project.notes ? `<div class="project-notes">${escapeHtml(project.notes)}</div>` : ''}
+              <div class="project-threemf-row">
+                ${project.threemf_filename ? `
+                  <button
+                    type="button"
+                    class="btn-slicer"
+                    data-proj-action="open-slicer"
+                    data-project-id="${project.id}"
+                    title="Öffnet „${escapeHtml(project.threemf_filename)}“ direkt lokal in Bambu Studio"
+                  >
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M8 1.5L14 4.8V11.2L8 14.5L2 11.2V4.8L8 1.5Z"/>
+                      <path d="M2 4.8L8 8.1L14 4.8"/>
+                      <path d="M8 8.1V14.5"/>
+                    </svg>
+                    In Bambu Studio öffnen
+                  </button>
+                  <span class="threemf-badge" title="${escapeHtml(project.threemf_filename)}">
+                    ${escapeHtml(project.threemf_filename)}
+                  </span>
+                  <button
+                    type="button"
+                    class="btn-micro"
+                    data-proj-action="pick-threemf"
+                    data-project-id="${project.id}"
+                    title="Andere .3mf Datei hochladen &amp; Daten aktualisieren"
+                  >.3mf ersetzen</button>
+                  <button
+                    type="button"
+                    class="btn-micro"
+                    data-proj-action="remove-threemf"
+                    data-project-id="${project.id}"
+                    title=".3mf Datei vom Projekt entfernen"
+                  >✕</button>
+                ` : `
+                  <button
+                    type="button"
+                    class="btn-threemf-attach"
+                    data-proj-action="pick-threemf"
+                    data-project-id="${project.id}"
+                    title=".3mf Datei anhängen — liest Vorschaubild, Druckzeit und Filamente automatisch aus"
+                  >+ .3mf Datei anhängen (Auto-Import)</button>
+                `}
+              </div>
             </div>
           </div>
 
@@ -1011,7 +1101,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Projects & Multi-Filament Cost Calculator Interactions ---
   const newProjImgInput = document.getElementById('newProjectImage');
   const newProjImgPreview = document.getElementById('newProjectImagePreview');
+  const newProjThreeMfInput = document.getElementById('newProjectThreeMf');
   const existingProjImgPicker = document.getElementById('existingProjectImagePicker');
+  const existingProjThreeMfPicker = document.getElementById('existingProjectThreeMfPicker');
+
+  newProjThreeMfInput.addEventListener('change', e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const nameInput = document.getElementById('newProjectName');
+    if (!nameInput.value.trim()) {
+      const derived = file.name
+        .replace(/\.gcode\.3mf$/i, '')
+        .replace(/\.3mf$/i, '')
+        .replace(/[_]+/g, ' ')
+        .trim();
+      if (derived) {
+        nameInput.value = derived;
+      }
+    }
+  });
 
   newProjImgInput.addEventListener('change', async e => {
     const file = e.target.files?.[0];
@@ -1050,11 +1158,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  existingProjThreeMfPicker.addEventListener('change', async e => {
+    const file = e.target.files?.[0];
+    const projectId = state.targetThreeMfProjectId;
+    existingProjThreeMfPicker.value = '';
+    if (!file || !projectId) return;
+
+    const project = state.projects.find(p => p.id === projectId);
+    let replaceItems = true;
+    if (project && project.items && project.items.length > 0) {
+      replaceItems = confirm(
+        `Das Projekt enthält bereits ${project.items.length} Filament-Position(en).\n\n` +
+        `• OK = Bestehende Positionen durch „${file.name}“ ERSETZEN\n` +
+        `• Abbrechen = Filamente aus „${file.name}“ zusätzlich HINZUFÜGEN`
+      );
+    }
+
+    try {
+      showToast(`Analysiere „${file.name}“...`);
+      const res = await uploadThreeMfForProject(projectId, file, {
+        overwriteImage: !project?.image_data,
+        replaceItems
+      });
+      state.projects = res.projects;
+      renderAll();
+      showToast(formatThreeMfImportSummary(res.imported));
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  });
+
   document.getElementById('createProjectForm').addEventListener('submit', async e => {
     e.preventDefault();
     const nameInput = document.getElementById('newProjectName');
     const printTimeInput = document.getElementById('newProjectPrintTime');
     const notesInput = document.getElementById('newProjectNotes');
+    const threeMfFile = newProjThreeMfInput.files?.[0] || null;
     const name = nameInput.value.trim();
     const printTime = printTimeInput.value.trim();
     const notes = notesInput.value.trim();
@@ -1071,14 +1210,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         })
       });
       state.projects = res.projects;
+
+      let toastMsg = `Projekt „${name}“ angelegt`;
+      if (threeMfFile && res.id) {
+        const upRes = await uploadThreeMfForProject(res.id, threeMfFile, {
+          overwriteImage: !state.newProjectImageData,
+          replaceItems: true
+        });
+        state.projects = upRes.projects;
+        toastMsg = `Projekt „${name}“ angelegt (${formatThreeMfImportSummary(upRes.imported)})`;
+      }
+
       nameInput.value = '';
       printTimeInput.value = '';
       notesInput.value = '';
       newProjImgInput.value = '';
+      newProjThreeMfInput.value = '';
       state.newProjectImageData = '';
       newProjImgPreview.classList.add('hidden');
       renderAll();
-      showToast(`Projekt „${name}“ angelegt`);
+      showToast(toastMsg);
     } catch (err) {
       showToast(err.message, true);
     }
@@ -1114,17 +1265,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Inline Filament or Weight Update on a Project Item
+  // Inline Label, Filament or Weight Update on a Project Item
+  projectsContainer.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.matches('[data-item-label-input], [data-item-weight]')) {
+      e.preventDefault();
+      e.target.blur();
+    }
+  });
+
   projectsContainer.addEventListener('change', async e => {
     const row = e.target.closest('[data-item-row]');
     if (!row) return;
-    if (!e.target.matches('[data-item-weight], [data-item-filament-select]')) return;
+    if (!e.target.matches('[data-item-label-input], [data-item-weight], [data-item-filament-select]')) return;
 
     const itemId = Number(row.dataset.itemRow);
-    const label = row.dataset.itemLabel || '';
+    const labelInput = row.querySelector('[data-item-label-input]');
     const filamentSelect = row.querySelector('[data-item-filament-select]');
     const weightInput = row.querySelector('[data-item-weight]');
 
+    const label = (labelInput ? labelInput.value : (row.dataset.itemLabel || '')).trim();
     const filamentId = Number(filamentSelect?.value);
     const weightG = Number(weightInput?.value);
 
@@ -1144,7 +1303,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       state.projects = res.projects;
       renderProjects();
-      showToast('Position & Projektpreis aktualisiert');
+      showToast(e.target.matches('[data-item-label-input]') ? 'Bezeichnung gespeichert' : 'Position & Projektpreis aktualisiert');
     } catch (err) {
       showToast(err.message, true);
     }
@@ -1177,6 +1336,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (action === 'pick-image') {
       state.targetImageProjectId = projectId;
       existingProjImgPicker.click();
+    } else if (action === 'pick-threemf') {
+      state.targetThreeMfProjectId = projectId;
+      existingProjThreeMfPicker.click();
+    } else if (action === 'open-slicer') {
+      try {
+        const res = await apiFetch(`/api/projects/${projectId}/open-slicer`, {
+          method: 'POST'
+        });
+        showToast(`Öffne „${res.filename || project.threemf_filename}“ in Bambu Studio...`);
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    } else if (action === 'remove-threemf') {
+      if (!confirm(`Verknüpfte Datei „${project.threemf_filename}“ vom Projekt entfernen?`)) return;
+      try {
+        const res = await apiFetch(`/api/projects/${projectId}/threemf`, {
+          method: 'DELETE'
+        });
+        state.projects = res.projects;
+        renderProjects();
+        showToast('.3mf Datei entfernt');
+      } catch (err) {
+        showToast(err.message, true);
+      }
     } else if (action === 'remove-image') {
       try {
         const res = await apiFetch(`/api/projects/${projectId}`, {

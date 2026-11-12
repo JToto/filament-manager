@@ -150,6 +150,16 @@
               />
             </div>
             <div class="field-col">
+              <label for="newProjectThreeMf">.3mf Datei (Auto-Import)</label>
+              <input
+                type="file"
+                id="newProjectThreeMf"
+                accept=".3mf"
+                class="file-input-compact"
+                title="Liest Vorschaubild, Druckzeit &amp; Filamente automatisch aus der .3mf Datei aus"
+              />
+            </div>
+            <div class="field-col">
               <label for="newProjectImage">Projektbild (optional)</label>
               <div class="new-proj-image-row">
                 <input
@@ -167,6 +177,7 @@
           </div>
         </form>
         <input type="file" id="existingProjectImagePicker" accept="image/*" class="hidden" />
+        <input type="file" id="existingProjectThreeMfPicker" accept=".3mf" class="hidden" />
       </div>
 
       <!-- Projects List Container -->

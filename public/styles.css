@@ -772,8 +772,8 @@ select:focus {
 
 .project-create-inputs {
   display: grid;
-  grid-template-columns: 1fr 0.65fr 1fr 0.85fr auto;
-  gap: 12px;
+  grid-template-columns: 1fr 0.6fr 0.85fr 0.85fr 0.85fr auto;
+  gap: 10px;
   align-items: end;
 }
 
@@ -918,6 +918,78 @@ select:focus {
   margin-top: 2px;
 }
 
+.project-threemf-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.btn-slicer {
+  appearance: none;
+  background: var(--text);
+  color: #FFFFFF;
+  border: 1px solid var(--text);
+  border-radius: 4px;
+  padding: 3px 9px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background-color 0.12s, border-color 0.12s;
+}
+
+.btn-slicer:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.btn-slicer svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.threemf-badge {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-strong);
+  padding: 2px 7px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-threemf-attach {
+  appearance: none;
+  background: var(--surface);
+  color: var(--text-secondary);
+  border: 1px dashed var(--border-strong);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.73rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background-color 0.12s;
+}
+
+.btn-threemf-attach:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-tint);
+}
+
 .project-header-right {
   display: flex;
   align-items: center;
@@ -1051,6 +1123,30 @@ select:focus {
 .project-items-table tfoot td.sum-cost {
   color: var(--accent);
   font-size: 1.08rem;
+}
+
+.inline-label-input {
+  width: 100% !important;
+  min-width: 170px;
+  max-width: 280px;
+  padding: 5px 8px !important;
+  font-size: 0.87rem !important;
+  font-weight: 700;
+  color: var(--text);
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  transition: border-color 0.12s, background-color 0.12s, box-shadow 0.12s;
+}
+
+.inline-label-input:hover {
+  background-color: var(--surface);
+  border-color: var(--border-strong);
+}
+
+.inline-label-input:focus {
+  background-color: var(--surface);
+  border-color: var(--accent);
 }
 
 .inline-weight-input {
