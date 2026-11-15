@@ -30,16 +30,6 @@
       "server.js",
       "package.json"
     ],
-    "extraResources": [
-      {
-        "from": "data",
-        "to": "seed-data",
-        "filter": [
-          "filaments.db",
-          "files/**/*"
-        ]
-      }
-    ],
     "mac": {
       "category": "public.app-category.utilities",
       "icon": "build/icon.icns",

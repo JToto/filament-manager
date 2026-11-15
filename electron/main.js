@@ -7,42 +7,13 @@ let mainWindow = null;
 let serverProcess = null;
 
 /**
- * Kopiert beim ersten Start der gepackten Desktop-App die bestehende Datenbank
- * (`filaments.db`) sowie alle verknüpften `.3mf`-Dateien (`files/`) in das
- * beschreibbare macOS Application-Support-Verzeichnis (`~/Library/Application Support/SpoolMate/data`).
+ * Stellt sicher, dass das Datenverzeichnis unter `~/Library/Application Support/SpoolMate/data`
+ * existiert. Beim allerersten Start legt `DatabaseManager` dort automatisch eine neue,
+ * leere SQLite-Datenbank (`filaments.db`) inkl. Standard-Herstellern an.
  */
-function ensureUserDataMigrated(targetDataDir) {
-  const targetDbPath = path.join(targetDataDir, 'filaments.db');
-  if (fs.existsSync(targetDbPath)) {
-    return;
-  }
-
-  const candidateSources = [
-    process.resourcesPath ? path.join(process.resourcesPath, 'seed-data') : null,
-    path.join(__dirname, '..', 'data')
-  ].filter(Boolean);
-
-  for (const srcDir of candidateSources) {
-    const srcDbPath = path.join(srcDir, 'filaments.db');
-    if (fs.existsSync(srcDbPath)) {
-      fs.mkdirSync(targetDataDir, { recursive: true });
-      fs.copyFileSync(srcDbPath, targetDbPath);
-
-      const srcFilesDir = path.join(srcDir, 'files');
-      const targetFilesDir = path.join(targetDataDir, 'files');
-      if (fs.existsSync(srcFilesDir)) {
-        fs.mkdirSync(targetFilesDir, { recursive: true });
-        for (const entry of fs.readdirSync(srcFilesDir)) {
-          const sFile = path.join(srcFilesDir, entry);
-          const tFile = path.join(targetFilesDir, entry);
-          if (fs.statSync(sFile).isFile() && !fs.existsSync(tFile)) {
-            fs.copyFileSync(sFile, tFile);
-          }
-        }
-      }
-      console.log(`[SpoolMate Electron] Bestands-Datenbank erfolgreich aus ${srcDir} übernommen.`);
-      return;
-    }
+function ensureUserDataDirectory(targetDataDir) {
+  if (!fs.existsSync(targetDataDir)) {
+    fs.mkdirSync(targetDataDir, { recursive: true });
   }
 }
 
@@ -134,7 +105,7 @@ async function createMainWindow() {
     : path.join(__dirname, '..', 'data');
 
   if (app.isPackaged) {
-    ensureUserDataMigrated(dataDir);
+    ensureUserDataDirectory(dataDir);
   }
 
   const serverUrl = await spawnBackendServer(dataDir);
