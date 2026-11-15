@@ -345,7 +345,7 @@ export class ProjectCalculatorComponent implements OnChanges {
   }
 
   async editPrintTime(project: Project): Promise<void> {
-    const newTime = window.prompt(
+    const newTime = await this.spoolmate.prompt(
       `Druckzeit für „${project.name}“ eingeben (z. B. "6h 25m", "2:30" oder "45m"):`,
       project.print_time || ''
     );
@@ -361,14 +361,14 @@ export class ProjectCalculatorComponent implements OnChanges {
   }
 
   async editProjectDetails(project: Project): Promise<void> {
-    const newName = window.prompt('Projektname:', project.name);
+    const newName = await this.spoolmate.prompt('Projektname:', project.name);
     if (!newName || !newName.trim()) return;
-    const newTime = window.prompt(
+    const newTime = await this.spoolmate.prompt(
       'Druckzeit (z. B. 6h 25m):',
       project.print_time || ''
     );
     if (newTime === null) return;
-    const newNotes = window.prompt('Notiz (optional):', project.notes || '');
+    const newNotes = await this.spoolmate.prompt('Notiz (optional):', project.notes || '');
     if (newNotes === null) return;
 
     try {

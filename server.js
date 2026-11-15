@@ -21,42 +21,8 @@ const { FilamentController } = require('./backend/controllers/FilamentController
 const { ProjectController } = require('./backend/controllers/ProjectController');
 const { SettingsController } = require('./backend/controllers/SettingsController');
 
-const PORT = process.env.PORT || 3456;
-const DATA_DIR = path.join(__dirname, 'data');
 const ANGULAR_DIST_DIR = path.join(__dirname, 'dist', 'spoolmate', 'browser');
 const PUBLIC_FALLBACK_DIR = path.join(__dirname, 'public');
-
-// 1. Datenbank & Infrastruktur initialisieren
-const dbManager = new DatabaseManager(DATA_DIR);
-const db = dbManager.getConnection();
-const filesDir = dbManager.getFilesDir();
-
-// 2. Repositories (Datenzugriffsschicht) instanziieren
-const manufacturerRepo = new ManufacturerRepository(db);
-const filamentRepo = new FilamentRepository(db);
-const projectRepo = new ProjectRepository(db);
-const settingsRepo = new SettingsRepository(db);
-
-// 3. Services (Geschäftslogik) instanziieren
-const threeMfService = new ThreeMfService();
-const manufacturerService = new ManufacturerService(manufacturerRepo);
-const filamentService = new FilamentService(filamentRepo, projectRepo);
-const projectService = new ProjectService(
-  projectRepo,
-  filamentRepo,
-  settingsRepo,
-  threeMfService,
-  filesDir
-);
-const settingsService = new SettingsService(settingsRepo);
-
-// 4. REST-Controller instanziieren
-const controllers = [
-  new SettingsController(settingsService, manufacturerService, filamentService, projectService),
-  new ManufacturerController(manufacturerService, filamentService, projectService),
-  new FilamentController(filamentService, manufacturerService, projectService),
-  new ProjectController(projectService)
-];
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -102,31 +68,91 @@ function serveStaticFile(req, res, pathname) {
   fs.createReadStream(filePath).pipe(res);
 }
 
-const server = http.createServer(async (req, res) => {
-  try {
-    const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const pathname = parsedUrl.pathname;
+/**
+ * Initialisiert Datenbank, Repositories, Services und Controller
+ * und startet den HTTP-Server (für Web-Modus oder eingebettet in Electron).
+ */
+function startServer(options = {}) {
+  const dataDir = options.dataDir || process.env.SPOOLMATE_DATA_DIR || path.join(__dirname, 'data');
+  const requestedPort = options.port !== undefined ? options.port : (process.env.PORT || 3456);
+  const host = options.host || '127.0.0.1';
 
-    if (pathname.startsWith('/api/')) {
-      for (const controller of controllers) {
-        const handled = await controller.handle(req, res, pathname);
-        if (handled !== false) {
-          return;
+  // 1. Datenbank & Infrastruktur initialisieren
+  const dbManager = new DatabaseManager(dataDir);
+  const db = dbManager.getConnection();
+  const filesDir = dbManager.getFilesDir();
+
+  // 2. Repositories (Datenzugriffsschicht) instanziieren
+  const manufacturerRepo = new ManufacturerRepository(db);
+  const filamentRepo = new FilamentRepository(db);
+  const projectRepo = new ProjectRepository(db);
+  const settingsRepo = new SettingsRepository(db);
+
+  // 3. Services (Geschäftslogik) instanziieren
+  const threeMfService = new ThreeMfService();
+  const manufacturerService = new ManufacturerService(manufacturerRepo);
+  const filamentService = new FilamentService(filamentRepo, projectRepo);
+  const projectService = new ProjectService(
+    projectRepo,
+    filamentRepo,
+    settingsRepo,
+    threeMfService,
+    filesDir
+  );
+  const settingsService = new SettingsService(settingsRepo);
+
+  // 4. REST-Controller instanziieren
+  const controllers = [
+    new SettingsController(settingsService, manufacturerService, filamentService, projectService),
+    new ManufacturerController(manufacturerService, filamentService, projectService),
+    new FilamentController(filamentService, manufacturerService, projectService),
+    new ProjectController(projectService)
+  ];
+
+  const server = http.createServer(async (req, res) => {
+    try {
+      const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      const pathname = parsedUrl.pathname;
+
+      if (pathname.startsWith('/api/')) {
+        for (const controller of controllers) {
+          const handled = await controller.handle(req, res, pathname);
+          if (handled !== false) {
+            return;
+          }
         }
+        return HttpUtils.sendJson(res, 404, { error: `API-Endpunkt nicht gefunden: ${pathname}` });
       }
-      return HttpUtils.sendJson(res, 404, { error: `API-Endpunkt nicht gefunden: ${pathname}` });
+
+      serveStaticFile(req, res, pathname);
+    } catch (err) {
+      console.error('[SpoolMate Server Error]', err);
+      const statusCode = err.statusCode || 500;
+      HttpUtils.sendJson(res, statusCode, {
+        error: err.message || 'Interner Serverfehler.'
+      });
     }
+  });
 
-    serveStaticFile(req, res, pathname);
-  } catch (err) {
-    console.error('[SpoolMate Server Error]', err);
-    const statusCode = err.statusCode || 500;
-    HttpUtils.sendJson(res, statusCode, {
-      error: err.message || 'Interner Serverfehler.'
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(requestedPort, host, () => {
+      const address = server.address();
+      const actualPort = typeof address === 'object' && address ? address.port : requestedPort;
+      const url = `http://${host}:${actualPort}`;
+      console.log(`\n🧵 SpoolMate Server (Angular + OOP Backend) läuft auf ${url}`);
+      console.log(`📂 Datenverzeichnis: ${dataDir}\n`);
+      resolve({ server, port: actualPort, url, db });
     });
-  }
-});
+  });
+}
 
-server.listen(PORT, () => {
-  console.log(`\n🧵 SpoolMate Server (Angular + OOP Backend) läuft auf http://localhost:${PORT}\n`);
-});
+if (require.main === module) {
+  const host = process.env.HOST || '127.0.0.1';
+  startServer({ host }).catch((err) => {
+    console.error('Fehler beim Starten des Servers:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = { startServer };

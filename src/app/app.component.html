@@ -85,6 +85,40 @@
   (closed)="closeFilamentModal()"
 ></app-filament-modal>
 
+<!-- In-App Eingabe-Dialog (ersetzt window.prompt für Electron-Kompatibilität) -->
+<div
+  class="modal-backdrop"
+  *ngIf="spoolmate.promptState.isOpen"
+  role="dialog"
+  aria-modal="true"
+>
+  <div class="modal-card" style="max-width: 440px;">
+    <form (ngSubmit)="spoolmate.closePrompt(true)">
+      <div class="form-group">
+        <label style="white-space: pre-line; line-height: 1.45; margin-bottom: 10px;">
+          {{ spoolmate.promptState.message }}
+        </label>
+        <input
+          type="text"
+          name="promptValue"
+          [(ngModel)]="spoolmate.promptState.value"
+          autofocus
+        />
+      </div>
+      <div class="modal-footer">
+        <button
+          type="button"
+          class="btn btn-ghost"
+          (click)="spoolmate.closePrompt(false)"
+        >
+          Abbrechen
+        </button>
+        <button type="submit" class="btn btn-primary">OK</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Toast-Benachrichtigungen -->
 <div class="toast-container" aria-live="polite">
   <div

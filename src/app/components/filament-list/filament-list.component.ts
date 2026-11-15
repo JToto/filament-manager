@@ -120,7 +120,7 @@ export class FilamentListComponent {
   }
 
   async promptCustomWeight(f: Filament): Promise<void> {
-    const raw = window.prompt(
+    const raw = await this.spoolmate.prompt(
       `Wie viel Gramm möchtest du von „${f.manufacturer_name} ${f.material} ${f.color_name}“ abziehen?\n(Tipp: Negativwert wie -50 zieht ab, Positivwert wie +50 bucht hinzu, oder gib mit "=350" den exakten neuen Restbestand ein)`,
       '-35'
     );

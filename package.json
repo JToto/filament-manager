@@ -1,29 +1,70 @@
 {
-  "name": "filament-manager",
+  "name": "spoolmate",
+  "productName": "SpoolMate",
   "version": "2.0.0",
-  "description": "Web-App (Angular + Node/SQLite) zum Verwalten von 3D-Druck Filament-Spulen, Herstellern und Druckkosten",
-  "main": "server.js",
+  "author": "SpoolMate",
+  "description": "Desktop- & Web-App (Angular + Electron + SQLite) zum Verwalten von 3D-Druck Filament-Spulen, Herstellern und Druckkosten",
+  "main": "electron/main.js",
   "scripts": {
     "build": "ng build",
     "start": "ng build && node --no-warnings server.js",
     "serve": "node --no-warnings server.js",
-    "dev": "node --no-warnings --watch server.js"
+    "dev": "node --no-warnings --watch server.js",
+    "electron": "ng build && electron .",
+    "dist": "ng build && electron-builder --mac"
   },
-  "dependencies": {
-    "@angular/common": "^19.0.0",
-    "@angular/compiler": "^19.0.0",
-    "@angular/core": "^19.0.0",
-    "@angular/forms": "^19.0.0",
-    "@angular/platform-browser": "^19.0.0",
-    "rxjs": "~7.8.0",
-    "tslib": "^2.3.0",
-    "zone.js": "~0.15.0"
+  "build": {
+    "appId": "de.spoolmate.app",
+    "productName": "SpoolMate",
+    "asar": false,
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "backend/**/*",
+      "dist/spoolmate/browser/**/*",
+      "public/**/*",
+      "build/icon.png",
+      "server.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "data",
+        "to": "seed-data",
+        "filter": [
+          "filaments.db",
+          "files/**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.icns",
+      "identity": null,
+      "target": [
+        "dir",
+        "dmg"
+      ]
+    }
   },
   "devDependencies": {
     "@angular/build": "^19.0.0",
     "@angular/cli": "^19.0.0",
+    "@angular/common": "^19.0.0",
+    "@angular/compiler": "^19.0.0",
     "@angular/compiler-cli": "^19.0.0",
-    "typescript": "~5.6.2"
+    "@angular/core": "^19.0.0",
+    "@angular/forms": "^19.0.0",
+    "@angular/platform-browser": "^19.0.0",
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0",
+    "typescript": "~5.6.2",
+    "zone.js": "~0.15.0"
   },
   "engines": {
     "node": ">=22.5.0"

@@ -29,6 +29,36 @@ export class SpoolmateService {
   toasts: ToastMessage[] = [];
   private nextToastId = 1;
 
+  // In-App Prompt-Dialog (funktioniert im Browser und nativ in Electron, wo window.prompt fehlt)
+  promptState: {
+    isOpen: boolean;
+    message: string;
+    value: string;
+    resolve?: (val: string | null) => void;
+  } = {
+    isOpen: false,
+    message: '',
+    value: ''
+  };
+
+  prompt(message: string, defaultValue = ''): Promise<string | null> {
+    return new Promise((resolve) => {
+      this.promptState = {
+        isOpen: true,
+        message,
+        value: defaultValue,
+        resolve
+      };
+    });
+  }
+
+  closePrompt(confirmed: boolean): void {
+    const r = this.promptState.resolve;
+    const val = confirmed ? this.promptState.value : null;
+    this.promptState = { isOpen: false, message: '', value: '' };
+    if (r) r(val);
+  }
+
   showToast(message: string, type: 'success' | 'error' = 'success'): void {
     const id = this.nextToastId++;
     this.toasts.push({ id, message, type });

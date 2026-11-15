@@ -1,5 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { Filament, TabType } from './models/spoolmate.models';
 import { SpoolmateService } from './services/spoolmate.service';
 import { HeaderStatsComponent } from './components/header-stats/header-stats.component';
@@ -14,6 +15,7 @@ import { SettingsPanelComponent } from './components/settings-panel/settings-pan
   standalone: true,
   imports: [
     CommonModule,
+    FormsModule,
     HeaderStatsComponent,
     FilamentListComponent,
     FilamentModalComponent,

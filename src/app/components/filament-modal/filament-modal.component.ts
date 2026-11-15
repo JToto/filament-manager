@@ -149,7 +149,7 @@ export class FilamentModalComponent implements OnChanges {
   }
 
   async promptQuickManufacturer(): Promise<void> {
-    const name = window.prompt('Name des neuen Herstellers:');
+    const name = await this.spoolmate.prompt('Name des neuen Herstellers:');
     if (!name || !name.trim()) return;
     try {
       const newId = await this.spoolmate.createManufacturer({
