@@ -10,7 +10,10 @@ const state = {
   newProjectImageData: '',
   targetImageProjectId: null,
   targetThreeMfProjectId: null,
-  remainingTouchedInModal: false
+  remainingTouchedInModal: false,
+  projectSearchQuery: '',
+  projectPage: 1,
+  projectPageSize: 5
 };
 
 async function uploadThreeMfForProject(projectId, file, options = {}) {
@@ -358,15 +361,21 @@ function renderFilamentsGrid() {
 }
 
 // --- Projects & Multi-Filament Cost Calculator Rendering ---
+function getBaseMaterial(mat) {
+  return String(mat || '')
+    .trim()
+    .toUpperCase()
+    .split(/[\s+\-_/()]+/)[0];
+}
+
 function buildFilamentOptionsHtml(selectedId = null, filterMaterial = null) {
-  const list = filterMaterial
-    ? state.filaments.filter(
-        f => String(f.material || '').trim().toLowerCase() === String(filterMaterial).trim().toLowerCase()
-      )
+  const targetBase = filterMaterial ? getBaseMaterial(filterMaterial) : '';
+  const list = targetBase
+    ? state.filaments.filter(f => getBaseMaterial(f.material) === targetBase)
     : state.filaments;
 
   if (list.length === 0) {
-    return `<option value="">${filterMaterial ? `Keine ${escapeHtml(filterMaterial)}-Spulen im Bestand` : 'Bitte zuerst Spulen im Bestand anlegen'}</option>`;
+    return `<option value="">${targetBase ? `Keine ${escapeHtml(targetBase)}-Spulen im Bestand` : 'Bitte zuerst Spulen im Bestand anlegen'}</option>`;
   }
   return list.map(f => {
     const isSel = selectedId && Number(selectedId) === Number(f.id) ? 'selected' : '';
@@ -374,8 +383,78 @@ function buildFilamentOptionsHtml(selectedId = null, filterMaterial = null) {
   }).join('');
 }
 
+function getFilteredProjects() {
+  const q = String(state.projectSearchQuery || '').trim().toLowerCase();
+  if (!q) return state.projects;
+
+  return state.projects.filter(p => {
+    const itemsText = (p.items || [])
+      .map(i => `${i.label || ''} ${i.filament_name || ''} ${i.material || ''}`)
+      .join(' ');
+    const haystack = `${p.name || ''} ${p.notes || ''} ${p.threemf_filename || ''} ${p.print_time || ''} ${itemsText}`.toLowerCase();
+    return haystack.includes(q);
+  });
+}
+
+function renderProjectsPagination(totalFiltered, totalPages) {
+  const pagEl = document.getElementById('projectsPagination');
+  if (!pagEl) return;
+
+  if (totalFiltered === 0 || state.projectPageSize <= 0 || totalPages <= 1) {
+    pagEl.classList.add('hidden');
+    pagEl.innerHTML = '';
+    return;
+  }
+
+  const startIdx = (state.projectPage - 1) * state.projectPageSize + 1;
+  const endIdx = Math.min(totalFiltered, state.projectPage * state.projectPageSize);
+
+  const pageBtns = [];
+  for (let p = 1; p <= totalPages; p++) {
+    pageBtns.push(`
+      <button
+        type="button"
+        class="page-btn ${p === state.projectPage ? 'active' : ''}"
+        data-project-page="${p}"
+      >${p}</button>
+    `);
+  }
+
+  pagEl.innerHTML = `
+    <div class="pagination-info mono">
+      Zeige ${startIdx}–${endIdx} von ${totalFiltered} Projekten (Seite ${state.projectPage} / ${totalPages})
+    </div>
+    <div class="pagination-controls">
+      <button
+        type="button"
+        class="page-btn"
+        data-project-page="${state.projectPage - 1}"
+        ${state.projectPage <= 1 ? 'disabled' : ''}
+      >← Zurück</button>
+      ${pageBtns.join('')}
+      <button
+        type="button"
+        class="page-btn"
+        data-project-page="${state.projectPage + 1}"
+        ${state.projectPage >= totalPages ? 'disabled' : ''}
+      >Weiter →</button>
+    </div>
+  `;
+  pagEl.classList.remove('hidden');
+}
+
 function renderProjects(preselectFilamentId = null) {
   const container = document.getElementById('projectsContainer');
+  const countLabel = document.getElementById('projectCountLabel');
+  const filteredProjects = getFilteredProjects();
+  const totalFiltered = filteredProjects.length;
+
+  if (countLabel) {
+    countLabel.textContent =
+      state.projectSearchQuery.trim()
+        ? `${totalFiltered} von ${state.projects.length} Projekten`
+        : `${state.projects.length} ${state.projects.length === 1 ? 'Projekt' : 'Projekte'}`;
+  }
 
   if (state.projects.length === 0) {
     container.innerHTML = `
@@ -384,12 +463,40 @@ function renderProjects(preselectFilamentId = null) {
         <p>Lege oben dein erstes Projekt an (z. B. „Teebox“) und füge beliebig viele Filamente / Druckplatten hinzu.</p>
       </div>
     `;
+    renderProjectsPagination(0, 0);
     return;
   }
 
+  if (totalFiltered === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <p style="font-size:1.02rem;font-weight:700;color:#18181B;margin-bottom:4px;">Keine passenden Projekte gefunden</p>
+        <p>Kein Projekt entspricht der Suche „${escapeHtml(state.projectSearchQuery)}“.</p>
+      </div>
+    `;
+    renderProjectsPagination(0, 0);
+    return;
+  }
+
+  const pageSize = state.projectPageSize;
+  const totalPages = pageSize > 0 ? Math.max(1, Math.ceil(totalFiltered / pageSize)) : 1;
+  if (state.projectPage > totalPages) {
+    state.projectPage = totalPages;
+  }
+  if (state.projectPage < 1) {
+    state.projectPage = 1;
+  }
+
+  const visibleProjects =
+    pageSize > 0
+      ? filteredProjects.slice((state.projectPage - 1) * pageSize, state.projectPage * pageSize)
+      : filteredProjects;
+
+  renderProjectsPagination(totalFiltered, totalPages);
+
   const spoolOptionsHtml = buildFilamentOptionsHtml(preselectFilamentId);
 
-  container.innerHTML = state.projects.map(project => {
+  container.innerHTML = visibleProjects.map(project => {
     const itemsHtml = project.items.length === 0
       ? `
         <tr>
@@ -1174,6 +1281,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       );
     }
 
+    const triggerBtn = document.querySelector(`[data-proj-action="pick-threemf"][data-project-id="${projectId}"]`);
+    const origBtnHtml = triggerBtn ? triggerBtn.innerHTML : '';
+    if (triggerBtn) {
+      triggerBtn.disabled = true;
+      triggerBtn.innerHTML = `<span class="btn-spinner btn-spinner-dark"></span> Analysiere .3mf…`;
+    }
+
     try {
       showToast(`Analysiere „${file.name}“...`);
       const res = await uploadThreeMfForProject(projectId, file, {
@@ -1184,6 +1298,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       renderAll();
       showToast(formatThreeMfImportSummary(res.imported));
     } catch (err) {
+      if (triggerBtn) {
+        triggerBtn.disabled = false;
+        triggerBtn.innerHTML = origBtnHtml;
+      }
       showToast(err.message, true);
     }
   });
@@ -1193,11 +1311,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     const nameInput = document.getElementById('newProjectName');
     const printTimeInput = document.getElementById('newProjectPrintTime');
     const notesInput = document.getElementById('newProjectNotes');
+    const createBtn = document.getElementById('btnCreateProject');
     const threeMfFile = newProjThreeMfInput.files?.[0] || null;
     const name = nameInput.value.trim();
     const printTime = printTimeInput.value.trim();
     const notes = notesInput.value.trim();
     if (!name) return;
+
+    const origBtnHtml = createBtn.innerHTML;
+    createBtn.disabled = true;
+    createBtn.innerHTML = threeMfFile
+      ? `<span class="btn-spinner"></span> Analysiere .3mf…`
+      : `<span class="btn-spinner"></span> Lege an…`;
 
     try {
       const res = await apiFetch('/api/projects', {
@@ -1227,11 +1352,43 @@ document.addEventListener('DOMContentLoaded', async () => {
       newProjImgInput.value = '';
       newProjThreeMfInput.value = '';
       state.newProjectImageData = '';
+      state.projectPage = 1;
       newProjImgPreview.classList.add('hidden');
       renderAll();
       showToast(toastMsg);
     } catch (err) {
       showToast(err.message, true);
+    } finally {
+      createBtn.disabled = false;
+      createBtn.innerHTML = origBtnHtml;
+    }
+  });
+
+  // Project Search & Pagination Listeners
+  const projectSearchInput = document.getElementById('projectSearchInput');
+  const projectPageSizeSelect = document.getElementById('projectPageSizeSelect');
+  const projectsPagination = document.getElementById('projectsPagination');
+
+  projectSearchInput.addEventListener('input', () => {
+    state.projectSearchQuery = projectSearchInput.value;
+    state.projectPage = 1;
+    renderProjects();
+  });
+
+  projectPageSizeSelect.addEventListener('change', () => {
+    state.projectPageSize = Number(projectPageSizeSelect.value);
+    state.projectPage = 1;
+    renderProjects();
+  });
+
+  projectsPagination.addEventListener('click', e => {
+    const btn = e.target.closest('[data-project-page]');
+    if (!btn || btn.disabled) return;
+    const targetPage = Number(btn.dataset.projectPage);
+    if (Number.isFinite(targetPage) && targetPage >= 1) {
+      state.projectPage = targetPage;
+      renderProjects();
+      document.getElementById('tab-calculator')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   });
 

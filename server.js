@@ -410,7 +410,70 @@ function parseSliceInfoXml(xml) {
   return { totalSec, extractedFilaments };
 }
 
-function inspectThreeMfFile(filePath) {
+function parseCliResultJson(resultJsonStr, projectSettings) {
+  let data;
+  try {
+    data = JSON.parse(resultJsonStr);
+  } catch (_) {
+    return { totalSec: 0, extractedFilaments: [] };
+  }
+
+  const plates = Array.isArray(data?.sliced_plates) ? data.sliced_plates : [];
+  const filTypes = Array.isArray(projectSettings?.filament_type) ? projectSettings.filament_type : [];
+  const filColors = Array.isArray(projectSettings?.filament_colour) ? projectSettings.filament_colour : [];
+
+  let totalSec = 0;
+  const extractedFilaments = [];
+
+  plates.forEach((plate, idx) => {
+    const plateIndex = Number(plate.id) || idx + 1;
+    const predSec = Number(plate.total_predication || plate.main_predication || 0);
+    if (Number.isFinite(predSec) && predSec > 0) {
+      totalSec += predSec;
+    }
+
+    const objs = Array.isArray(plate.objects) ? plate.objects : [];
+    const objNames = objs
+      .map(o => String(o?.name || '').replace(/\.(stl|step|stp|obj|3mf)$/i, '').trim())
+      .filter(Boolean);
+    const uniqueObjNames = [...new Set(objNames)];
+    const objSuffix =
+      uniqueObjNames.length === 1 && !/^object_\d+$/i.test(uniqueObjNames[0])
+        ? uniqueObjNames[0]
+        : '';
+
+    const fils = Array.isArray(plate.filaments) ? plate.filaments : [];
+    for (const f of fils) {
+      const usedG = Number(f.total_used_g ?? f.main_used_g ?? 0);
+      if (!Number.isFinite(usedG) || usedG <= 0) continue;
+
+      const slotId = Number(f.id) || 1;
+      const slotIdx = Math.max(0, slotId - 1);
+      const type = String(filTypes[slotIdx] || filTypes[0] || 'PLA').trim();
+      const rawColor = String(filColors[slotIdx] || filColors[0] || '#FF5F1F').trim();
+      const colorHex = rawColor.startsWith('#') ? rawColor.slice(0, 7) : `#${rawColor.slice(0, 6)}`;
+
+      const labelPrefix = objSuffix
+        ? `Platte ${plateIndex} – ${objSuffix}`
+        : `Platte ${plateIndex}`;
+      const label =
+        fils.length > 1
+          ? `${labelPrefix} · AMS #${slotId} (${type})`
+          : `${labelPrefix} (${type})`;
+
+      extractedFilaments.push({
+        label,
+        material: type,
+        color_hex: /^#[0-9a-fA-F]{6}$/.test(colorHex) ? colorHex : '#FF5F1F',
+        weight_g: Number(usedG.toFixed(1))
+      });
+    }
+  });
+
+  return { totalSec, extractedFilaments };
+}
+
+async function inspectThreeMfFile(filePath) {
   const result = {
     thumbnailDataUrl: '',
     printTime: '',
@@ -476,29 +539,40 @@ function inspectThreeMfFile(filePath) {
   }
 
   // 3. If the .3mf is unsliced (e.g. MakerWorld download or normal Save in Bambu Studio),
-  //    run Bambu Studio CLI headless slicer to compute exact print time & filament weights!
+  //    run Bambu Studio CLI headless slicer (without --export-3mf to avoid re-zipping huge meshes!)
   const bambuCliBin = '/Applications/BambuStudio.app/Contents/MacOS/BambuStudio';
   if (parsed.extractedFilaments.length === 0 && fs.existsSync(bambuCliBin)) {
+    let projectSettings = {};
+    if (entries.includes('Metadata/project_settings.config')) {
+      try {
+        const psRaw = execFileSync('unzip', ['-p', filePath, 'Metadata/project_settings.config'], {
+          encoding: 'utf8',
+          maxBuffer: 10 * 1024 * 1024
+        });
+        projectSettings = JSON.parse(psRaw);
+      } catch (_) {}
+    }
+
     const cliDataDir = '/tmp/spoolmate_bambu_datadir';
     const tmpOutDir = `/tmp/spoolmate_slice_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     try {
       fs.mkdirSync(cliDataDir, { recursive: true });
       fs.mkdirSync(tmpOutDir, { recursive: true });
-      execFileSync(
-        bambuCliBin,
-        ['--datadir', cliDataDir, '--slice', '0', '--outputdir', tmpOutDir, '--export-3mf', 'sliced.3mf', filePath],
-        { timeout: 45000, stdio: 'ignore' }
-      );
-      const sliced3mfPath = path.join(tmpOutDir, 'sliced.3mf');
-      if (fs.existsSync(sliced3mfPath)) {
-        const slicedXml = execFileSync('unzip', ['-p', sliced3mfPath, 'Metadata/slice_info.config'], {
-          encoding: 'utf8',
-          maxBuffer: 10 * 1024 * 1024
-        });
-        parsed = parseSliceInfoXml(slicedXml);
+      await new Promise(resolve => {
+        execFile(
+          bambuCliBin,
+          ['--datadir', cliDataDir, '--slice', '0', '--no-check', '--outputdir', tmpOutDir, filePath],
+          { timeout: 120000 },
+          () => resolve()
+        );
+      });
+      const resultJsonPath = path.join(tmpOutDir, 'result.json');
+      if (fs.existsSync(resultJsonPath)) {
+        const resultJsonStr = fs.readFileSync(resultJsonPath, 'utf8');
+        parsed = parseCliResultJson(resultJsonStr, projectSettings);
       }
     } catch (_) {
-      // Ignore CLI slice error and fall back below
+      // Ignore CLI slice error
     } finally {
       try {
         fs.rmSync(tmpOutDir, { recursive: true, force: true });
@@ -1118,7 +1192,7 @@ const server = http.createServer(async (req, res) => {
         fs.writeFileSync(storedPath, buf);
 
         // Inspect 3mf archive for thumbnail, print time & sliced filament weights
-        const inspected = inspectThreeMfFile(storedPath);
+        const inspected = await inspectThreeMfFile(storedPath);
         const overwriteImage = req.headers['x-overwrite-image'] === '1';
         const replaceItems = req.headers['x-replace-items'] === '1';
 
@@ -1368,13 +1442,13 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 404, { error: 'Filament nicht gefunden.' });
         }
 
+        const getBaseMat = m => String(m || '').trim().toUpperCase().split(/[\s+\-_/()]+/)[0];
         const requiredMaterial = (existingItem.current_material || existingItem.snapshot_material || '').trim();
-        if (
-          requiredMaterial &&
-          requiredMaterial.toLowerCase() !== String(snap.material || '').trim().toLowerCase()
-        ) {
+        const reqBase = getBaseMat(requiredMaterial);
+        const snapBase = getBaseMat(snap.material);
+        if (reqBase && snapBase && reqBase !== snapBase) {
           return sendJson(res, 400, {
-            error: `Materialwechsel nicht erlaubt: Diese Position erfordert ${requiredMaterial} (gewählt: ${snap.material}).`
+            error: `Materialwechsel nicht erlaubt: Diese Position erfordert ${reqBase} (gewählt: ${snap.material}).`
           });
         }
 

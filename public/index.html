@@ -172,7 +172,7 @@
               </div>
             </div>
             <div class="field-col-btn">
-              <button type="submit" class="btn btn-primary">+ Projekt anlegen</button>
+              <button type="submit" class="btn btn-primary" id="btnCreateProject">+ Projekt anlegen</button>
             </div>
           </div>
         </form>
@@ -180,8 +180,36 @@
         <input type="file" id="existingProjectThreeMfPicker" accept=".3mf" class="hidden" />
       </div>
 
+      <!-- Projects Search & Pagination Toolbar -->
+      <div class="toolbar projects-toolbar">
+        <div class="search-box">
+          <svg class="search-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="8.5" cy="8.5" r="5.5"></circle>
+            <line x1="13" y1="13" x2="17" y2="17"></line>
+          </svg>
+          <input
+            type="search"
+            id="projectSearchInput"
+            placeholder="Projekte durchsuchen (Name, Notiz, Bauteil, .3mf Datei, Material)..."
+            autocomplete="off"
+          />
+        </div>
+        <div class="filters">
+          <span class="projects-count-label mono" id="projectCountLabel">0 Projekte</span>
+          <select id="projectPageSizeSelect" aria-label="Projekte pro Seite">
+            <option value="5" selected>5 pro Seite</option>
+            <option value="10">10 pro Seite</option>
+            <option value="20">20 pro Seite</option>
+            <option value="0">Alle anzeigen</option>
+          </select>
+        </div>
+      </div>
+
       <!-- Projects List Container -->
       <div id="projectsContainer" class="projects-list"></div>
+
+      <!-- Projects Pagination Bar -->
+      <div id="projectsPagination" class="pagination-bar hidden"></div>
     </section>
 
     <!-- TAB 3: MANUFACTURERS -->
