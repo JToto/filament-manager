@@ -1,0 +1,97 @@
+<div class="app-shell">
+  <!-- Kopfzeile & KPI-Karten -->
+  <app-header-stats (addSpoolClicked)="openCreateFilamentModal()"></app-header-stats>
+
+  <!-- Main Navigation Tabs -->
+  <nav class="nav-tabs" role="tablist">
+    <button
+      type="button"
+      class="tab-btn"
+      [class.active]="activeTab === 'filaments'"
+      role="tab"
+      [attr.aria-selected]="activeTab === 'filaments'"
+      (click)="switchTab('filaments')"
+    >
+      Filament-Spulen
+      <span class="badge mono">{{ spoolmate.filaments.length }}</span>
+    </button>
+
+    <button
+      type="button"
+      class="tab-btn"
+      [class.active]="activeTab === 'projects'"
+      role="tab"
+      [attr.aria-selected]="activeTab === 'projects'"
+      (click)="switchTab('projects')"
+    >
+      Projekte &amp; Kostenrechner
+      <span class="badge mono">{{ spoolmate.projects.length }}</span>
+    </button>
+
+    <button
+      type="button"
+      class="tab-btn"
+      [class.active]="activeTab === 'manufacturers'"
+      role="tab"
+      [attr.aria-selected]="activeTab === 'manufacturers'"
+      (click)="switchTab('manufacturers')"
+    >
+      Hersteller
+      <span class="badge mono">{{ spoolmate.manufacturers.length }}</span>
+    </button>
+
+    <button
+      type="button"
+      class="tab-btn"
+      [class.active]="activeTab === 'settings'"
+      role="tab"
+      [attr.aria-selected]="activeTab === 'settings'"
+      (click)="switchTab('settings')"
+    >
+      Einstellungen
+    </button>
+  </nav>
+
+  <!-- Tab-Inhalte -->
+  <main class="tab-panel active" *ngIf="activeTab === 'filaments'">
+    <app-filament-list
+      (addSpool)="openCreateFilamentModal()"
+      (editSpool)="openEditFilamentModal($event)"
+      (duplicateSpool)="openDuplicateFilamentModal($event)"
+      (sendToProject)="handleSendToProject($event)"
+    ></app-filament-list>
+  </main>
+
+  <section class="tab-panel active" *ngIf="activeTab === 'projects'">
+    <app-project-calculator
+      [preselectedFilamentId]="preselectedProjectFilamentId"
+    ></app-project-calculator>
+  </section>
+
+  <section class="tab-panel active" *ngIf="activeTab === 'manufacturers'">
+    <app-manufacturer-manager></app-manufacturer-manager>
+  </section>
+
+  <section class="tab-panel active" *ngIf="activeTab === 'settings'">
+    <app-settings-panel></app-settings-panel>
+  </section>
+</div>
+
+<!-- Modal: Spule anlegen / bearbeiten / duplizieren -->
+<app-filament-modal
+  [isOpen]="isFilamentModalOpen"
+  [mode]="filamentModalMode"
+  [filament]="selectedFilamentForModal"
+  (closed)="closeFilamentModal()"
+></app-filament-modal>
+
+<!-- Toast-Benachrichtigungen -->
+<div class="toast-container" aria-live="polite">
+  <div
+    class="toast"
+    *ngFor="let t of spoolmate.toasts"
+    [class.error]="t.type === 'error'"
+  >
+    {{ t.message }}
+  </div>
+</div>

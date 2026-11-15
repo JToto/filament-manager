@@ -1,0 +1,566 @@
+<!-- Create New Project Bar -->
+<div class="card project-create-bar">
+  <form class="project-create-form" (ngSubmit)="createProject()">
+    <div class="project-create-title">
+      <h2>Neues Druckprojekt anlegen</h2>
+      <p class="text-muted">
+        Ein Projekt bündelt beliebig viele Druckplatten, Bauteile oder AMS-Farben und summiert Gewicht &amp; Kosten.
+      </p>
+    </div>
+    <div class="project-create-inputs">
+      <div class="field-col">
+        <label for="newProjectName">Projektname *</label>
+        <input
+          type="text"
+          id="newProjectName"
+          name="newProjectName"
+          [(ngModel)]="newProjectName"
+          required
+          placeholder="z. B. Teebox, Gridfinity Schublade, Helm..."
+        />
+      </div>
+      <div class="field-col">
+        <label for="newProjectPrintTime">Druckzeit (optional)</label>
+        <input
+          type="text"
+          id="newProjectPrintTime"
+          name="newProjectPrintTime"
+          [(ngModel)]="newProjectPrintTime"
+          placeholder="z. B. 6h 25m"
+        />
+      </div>
+      <div class="field-col">
+        <label for="newProjectNotes">Notiz (optional)</label>
+        <input
+          type="text"
+          id="newProjectNotes"
+          name="newProjectNotes"
+          [(ngModel)]="newProjectNotes"
+          placeholder="z. B. 3 Platten, 0.2mm Layer"
+        />
+      </div>
+      <div class="field-col">
+        <label for="newProjectThreeMf">.3mf Datei (Auto-Import)</label>
+        <input
+          #threeMfFileInput
+          type="file"
+          id="newProjectThreeMf"
+          accept=".3mf"
+          class="file-input-compact"
+          title="Liest Vorschaubild, Druckzeit &amp; Filamente automatisch aus der .3mf Datei aus"
+          (change)="onThreeMfFileSelected($event)"
+        />
+      </div>
+      <div class="field-col">
+        <label for="newProjectImage">Projektbild (optional)</label>
+        <div class="new-proj-image-row">
+          <input
+            #projectImageInput
+            type="file"
+            id="newProjectImage"
+            accept="image/*"
+            class="file-input-compact"
+            (change)="onProjectImageSelected($event)"
+          />
+          <img
+            [src]="newProjectImageData"
+            class="new-proj-thumb-preview"
+            [class.hidden]="!newProjectImageData"
+            alt="Vorschau"
+          />
+        </div>
+      </div>
+      <div class="field-col-btn">
+        <button
+          type="submit"
+          class="btn btn-primary"
+          [disabled]="isCreatingProject"
+        >
+          <ng-container *ngIf="isCreatingProject; else defaultCreateBtn">
+            <span class="btn-spinner" aria-hidden="true"></span>
+            <span>{{ selectedThreeMfFile ? 'Analysiere .3mf…' : 'Wird angelegt…' }}</span>
+          </ng-container>
+          <ng-template #defaultCreateBtn>+ Projekt anlegen</ng-template>
+        </button>
+      </div>
+    </div>
+  </form>
+
+  <input
+    #existingImagePicker
+    type="file"
+    accept="image/*"
+    class="hidden"
+    (change)="onExistingProjectImagePicked($event)"
+  />
+  <input
+    #existingThreeMfPicker
+    type="file"
+    accept=".3mf"
+    class="hidden"
+    (change)="onExistingProjectThreeMfPicked($event)"
+  />
+</div>
+
+<!-- Projects Search & Pagination Toolbar -->
+<div class="toolbar projects-toolbar">
+  <div class="search-box">
+    <svg class="search-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="8.5" cy="8.5" r="5.5"></circle>
+      <line x1="13" y1="13" x2="17" y2="17"></line>
+    </svg>
+    <input
+      type="search"
+      [(ngModel)]="searchQuery"
+      (ngModelChange)="onSearchChange()"
+      placeholder="Projekte durchsuchen (Name, Notiz, Bauteil, .3mf Datei, Material)..."
+      autocomplete="off"
+    />
+  </div>
+  <div class="filters">
+    <span class="projects-count-label mono">{{ projectCountLabel }}</span>
+    <select
+      [(ngModel)]="pageSize"
+      (ngModelChange)="onPageSizeChange()"
+      aria-label="Projekte pro Seite"
+    >
+      <option [ngValue]="5">5 pro Seite</option>
+      <option [ngValue]="10">10 pro Seite</option>
+      <option [ngValue]="20">20 pro Seite</option>
+      <option [ngValue]="0">Alle anzeigen</option>
+    </select>
+  </div>
+</div>
+
+<!-- Projects List Container -->
+<div class="projects-list">
+  <div class="empty-state" *ngIf="spoolmate.projects.length === 0">
+    <p style="font-size:1.02rem;font-weight:700;color:#18181B;margin-bottom:4px;">
+      Noch keine Projekte angelegt
+    </p>
+    <p>
+      Lege oben dein erstes Projekt an (z. B. „Teebox“) und füge beliebig viele Filamente / Druckplatten hinzu.
+    </p>
+  </div>
+
+  <div
+    class="empty-state"
+    *ngIf="spoolmate.projects.length > 0 && filteredProjects.length === 0"
+  >
+    <p style="font-size:1.02rem;font-weight:700;color:#18181B;margin-bottom:4px;">
+      Keine passenden Projekte gefunden
+    </p>
+    <p>Kein Projekt entspricht der Suche „{{ searchQuery }}“.</p>
+  </div>
+
+  <article class="project-card" *ngFor="let project of paginatedProjects">
+    <div class="project-card-header">
+      <div class="project-header-left">
+        <div class="project-thumb-wrap" *ngIf="project.image_data; else noThumbBtn">
+          <img
+            [src]="project.image_data"
+            [alt]="project.name"
+            class="project-thumb-img"
+            title="Klicken, um das Projektbild zu ändern"
+            (click)="triggerPickImage(project)"
+          />
+          <button
+            type="button"
+            class="project-thumb-remove"
+            title="Bild entfernen"
+            (click)="removeProjectThumb(project)"
+          >
+            ✕
+          </button>
+        </div>
+        <ng-template #noThumbBtn>
+          <button
+            type="button"
+            class="project-thumb-placeholder"
+            title="Bild für dieses Projekt hochladen"
+            (click)="triggerPickImage(project)"
+          >
+            <span>+ Bild</span>
+          </button>
+        </ng-template>
+
+        <div class="project-title-block">
+          <h3>{{ project.name }}</h3>
+          <div class="project-notes" *ngIf="project.notes">{{ project.notes }}</div>
+          <div class="project-threemf-row">
+            <ng-container *ngIf="project.threemf_filename; else attachThreeMfBtn">
+              <button
+                type="button"
+                class="btn-slicer"
+                [title]="'Öffnet „' + project.threemf_filename + '“ direkt lokal in Bambu Studio'"
+                (click)="openInBambuStudio(project)"
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M8 1.5L14 4.8V11.2L8 14.5L2 11.2V4.8L8 1.5Z"/>
+                  <path d="M2 4.8L8 8.1L14 4.8"/>
+                  <path d="M8 8.1V14.5"/>
+                </svg>
+                In Bambu Studio öffnen
+              </button>
+              <span class="threemf-badge" [title]="project.threemf_filename">
+                {{ project.threemf_filename }}
+              </span>
+              <button
+                type="button"
+                class="btn-micro"
+                title="Andere .3mf Datei hochladen &amp; Daten aktualisieren"
+                [disabled]="uploadingThreeMfProjectId === project.id"
+                (click)="triggerPickThreeMf(project)"
+              >
+                <ng-container *ngIf="uploadingThreeMfProjectId === project.id; else replaceText">
+                  <span class="btn-spinner btn-spinner-dark" aria-hidden="true"></span>
+                  <span>Importiere…</span>
+                </ng-container>
+                <ng-template #replaceText>.3mf ersetzen</ng-template>
+              </button>
+              <button
+                type="button"
+                class="btn-micro"
+                title=".3mf Datei vom Projekt entfernen"
+                (click)="removeProjectThreeMf(project)"
+              >
+                ✕
+              </button>
+            </ng-container>
+            <ng-template #attachThreeMfBtn>
+              <button
+                type="button"
+                class="btn-threemf-attach"
+                title=".3mf Datei anhängen — liest Vorschaubild, Druckzeit und Filamente automatisch aus"
+                [disabled]="uploadingThreeMfProjectId === project.id"
+                (click)="triggerPickThreeMf(project)"
+              >
+                <ng-container *ngIf="uploadingThreeMfProjectId === project.id; else attachText">
+                  <span class="btn-spinner btn-spinner-dark" aria-hidden="true"></span>
+                  <span>Importiere…</span>
+                </ng-container>
+                <ng-template #attachText>+ .3mf Datei anhängen (Auto-Import)</ng-template>
+              </button>
+            </ng-template>
+          </div>
+        </div>
+      </div>
+
+      <div class="project-header-right">
+        <div class="project-totals">
+          <button
+            type="button"
+            class="project-total-time-btn"
+            title="Klicken, um die Druckzeit einzutragen oder zu ändern (z. B. 6h 25m)"
+            (click)="editPrintTime(project)"
+          >
+            <span class="project-total-label">Druckzeit</span>
+            <span class="project-total-weight" *ngIf="project.print_time">
+              {{ project.print_time }}
+            </span>
+            <span class="project-total-time-placeholder" *ngIf="!project.print_time">
+              + Zeit
+            </span>
+          </button>
+          <div class="project-total-divider"></div>
+          <div class="project-total-item">
+            <span class="project-total-label">Gewicht</span>
+            <span class="project-total-weight">{{ formatGrams(project.total_weight_g) }}</span>
+          </div>
+          <div class="project-total-divider"></div>
+          <div class="project-total-item">
+            <span class="project-total-label">Material</span>
+            <span class="project-total-weight">{{ formatEur(project.material_cost) }}</span>
+          </div>
+          <div class="project-total-divider"></div>
+          <div
+            class="project-total-item"
+            [title]="
+              hasPrintTime(project)
+                ? (project.energy_kwh || 0).toLocaleString('de-DE', { maximumFractionDigits: 2 }) +
+                  ' kWh × ' +
+                  formatEur(spoolmate.settings.electricity_price_per_kwh) +
+                  '/kWh'
+                : 'Druckzeit eintragen, um Stromkosten zu berechnen'
+            "
+          >
+            <span class="project-total-label">Strom</span>
+            <span class="project-total-weight">{{ formatEur(project.energy_cost) }}</span>
+          </div>
+          <div class="project-total-divider"></div>
+          <div class="project-total-item">
+            <span class="project-total-label">Gesamtpreis</span>
+            <span class="project-total-price">{{ formatEur(project.total_cost) }}</span>
+          </div>
+        </div>
+
+        <div class="project-header-actions">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            *ngIf="project.items && project.items.length > 0"
+            title="Alle Gewichte dieses Projekts vom Spulenbestand abziehen"
+            (click)="deductProjectFromStock(project)"
+          >
+            Vom Bestand abziehen
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            (click)="editProjectDetails(project)"
+          >
+            Bearbeiten
+          </button>
+          <button
+            type="button"
+            class="btn btn-danger-ghost btn-sm"
+            (click)="deleteProject(project)"
+          >
+            Löschen
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="project-body">
+      <table class="project-items-table">
+        <thead>
+          <tr>
+            <th>Platte / Bauteil / Farbe</th>
+            <th>Verwendetes Filament</th>
+            <th>Preis / kg</th>
+            <th>Gewicht</th>
+            <th>Kosten</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngIf="!project.items || project.items.length === 0">
+            <td colspan="6" style="text-align:center;color:var(--text-muted);padding:18px;">
+              Noch keine Filamente oder Druckplatten zu „{{ project.name }}“ hinzugefügt.
+            </td>
+          </tr>
+
+          <tr *ngFor="let item of project.items; let idx = index">
+            <td>
+              <input
+                type="text"
+                class="inline-label-input"
+                [value]="item.label || 'Position ' + (idx + 1)"
+                placeholder="Bezeichnung..."
+                title="Klicken, um die Bezeichnung direkt zu ändern"
+                (change)="onItemLabelChange(item, $event)"
+              />
+            </td>
+            <td>
+              <div class="filament-cell">
+                <span
+                  class="color-dot"
+                  [style.background]="item.color_hex || '#FF5F1F'"
+                ></span>
+                <select
+                  class="inline-filament-select"
+                  [title]="
+                    'Andere ' +
+                    (item.material || '') +
+                    '-Spule wählen — Preis wird sofort neu berechnet'
+                  "
+                  (change)="onItemFilamentChange(item, $event)"
+                >
+                  <option *ngIf="!item.filament_id" value="" selected>
+                    {{ item.filament_name }}
+                  </option>
+                  <ng-container *ngIf="getCompatibleFilamentsForItem(item) as compatList">
+                    <option *ngIf="compatList.length === 0" value="">
+                      Keine {{ item.material || '' }}-Spulen im Bestand
+                    </option>
+                    <option
+                      *ngFor="let f of compatList"
+                      [value]="f.id"
+                      [selected]="f.id === item.filament_id"
+                    >
+                      {{ f.manufacturer_name }} — {{ f.material }} {{ f.color_name }} ({{ formatEur(f.price_per_kg) }}/kg · Rest: {{ formatGrams(f.remaining_weight_g) }})
+                    </option>
+                  </ng-container>
+                </select>
+                <span
+                  class="stock-warn-tag"
+                  *ngIf="isInsufficientStock(item)"
+                  [title]="
+                    'Auf der Spule sind nur noch ' +
+                    formatGrams(item.remaining_weight_g) +
+                    ' verfügbar'
+                  "
+                >
+                  Nur {{ formatGrams(item.remaining_weight_g) }} Rest!
+                </span>
+              </div>
+            </td>
+            <td class="mono">{{ formatEur(item.price_per_kg) }}/kg</td>
+            <td>
+              <div style="display:inline-flex;align-items:center;gap:5px;">
+                <input
+                  type="number"
+                  class="inline-weight-input"
+                  min="0.01"
+                  step="any"
+                  [value]="item.weight_g"
+                  title="Gewicht direkt anpassen"
+                  (change)="onItemWeightChange(item, $event)"
+                />
+                <span class="mono text-muted">g</span>
+              </div>
+            </td>
+            <td class="mono"><strong>{{ formatEur(item.cost) }}</strong></td>
+            <td style="text-align:right;">
+              <button
+                type="button"
+                class="btn-micro"
+                title="Position entfernen"
+                (click)="deleteItem(item)"
+              >
+                ✕
+              </button>
+            </td>
+          </tr>
+        </tbody>
+
+        <tfoot *ngIf="project.items && project.items.length > 0">
+          <ng-container *ngIf="hasPrintTime(project)">
+            <tr class="sub-footer-row">
+              <td colspan="3">
+                Zwischensumme Material ({{ project.items.length }}
+                {{ project.items.length === 1 ? 'Position' : 'Positionen' }})
+              </td>
+              <td>{{ formatGrams(project.total_weight_g) }}</td>
+              <td>{{ formatEur(project.material_cost) }}</td>
+              <td></td>
+            </tr>
+            <tr class="sub-footer-row">
+              <td colspan="3">
+                Stromkosten ({{ project.print_time }} ·
+                {{
+                  (project.energy_kwh || 0).toLocaleString('de-DE', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  })
+                }}
+                kWh &#64; {{ formatEur(spoolmate.settings.electricity_price_per_kwh) }}/kWh)
+              </td>
+              <td></td>
+              <td>{{ formatEur(project.energy_cost) }}</td>
+              <td></td>
+            </tr>
+          </ng-container>
+          <tr>
+            <td colspan="3">
+              Gesamtpreis Projekt „{{ project.name }}“
+              {{
+                hasPrintTime(project)
+                  ? '(Material + Strom)'
+                  : '(' +
+                    project.items.length +
+                    ' ' +
+                    (project.items.length === 1 ? 'Position' : 'Positionen') +
+                    ')'
+              }}
+            </td>
+            <td>{{ formatGrams(project.total_weight_g) }}</td>
+            <td class="sum-cost">{{ formatEur(project.total_cost) }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <form
+        class="project-add-row"
+        *ngIf="getItemForm(project.id) as itemForm"
+        (ngSubmit)="submitNewItem(project)"
+      >
+        <div>
+          <label>Platte / Teil / AMS-Farbe (optional)</label>
+          <input
+            type="text"
+            name="label"
+            [(ngModel)]="itemForm.label"
+            [placeholder]="
+              'z. B. Platte ' + ((project.items.length || 0) + 1) + ', Deckel, Farbe 2...'
+            "
+          />
+        </div>
+        <div>
+          <label>Filament-Spule *</label>
+          <select name="filament_id" [(ngModel)]="itemForm.filamentId" required>
+            <option [ngValue]="null" *ngIf="spoolmate.filaments.length === 0">
+              Bitte zuerst Spulen im Bestand anlegen
+            </option>
+            <option *ngFor="let f of spoolmate.filaments" [ngValue]="f.id">
+              {{ f.manufacturer_name }} — {{ f.material }} {{ f.color_name }} ({{ formatEur(f.price_per_kg) }}/kg · Rest: {{ formatGrams(f.remaining_weight_g) }})
+            </option>
+          </select>
+        </div>
+        <div>
+          <label>Gewicht (g) *</label>
+          <div class="input-with-unit">
+            <input
+              type="number"
+              name="weight_g"
+              [(ngModel)]="itemForm.weightG"
+              min="0.01"
+              step="any"
+              required
+              placeholder="z. B. 120"
+            />
+            <span class="unit-tag">g</span>
+          </div>
+        </div>
+        <div>
+          <button
+            type="submit"
+            class="btn btn-primary"
+            [disabled]="spoolmate.filaments.length === 0"
+          >
+            + Hinzufügen
+          </button>
+        </div>
+      </form>
+    </div>
+  </article>
+</div>
+
+<!-- Projects Pagination Bar -->
+<div
+  class="pagination-bar"
+  *ngIf="filteredProjects.length > 0 && pageSize > 0 && totalPages > 1"
+>
+  <div class="pagination-info mono">
+    Zeige {{ paginationStartIdx }}–{{ paginationEndIdx }} von {{ filteredProjects.length }} Projekten (Seite {{ currentPage }} / {{ totalPages }})
+  </div>
+  <div class="pagination-controls">
+    <button
+      type="button"
+      class="page-btn"
+      [disabled]="currentPage <= 1"
+      (click)="goToPage(currentPage - 1)"
+    >
+      ← Zurück
+    </button>
+    <button
+      type="button"
+      class="page-btn"
+      *ngFor="let p of pageNumbers"
+      [class.active]="p === currentPage"
+      (click)="goToPage(p)"
+    >
+      {{ p }}
+    </button>
+    <button
+      type="button"
+      class="page-btn"
+      [disabled]="currentPage >= totalPages"
+      (click)="goToPage(currentPage + 1)"
+    >
+      Weiter →
+    </button>
+  </div>
+</div>

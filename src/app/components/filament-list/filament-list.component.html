@@ -1,0 +1,166 @@
+<div class="toolbar">
+  <div class="search-box">
+    <svg class="search-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="8.5" cy="8.5" r="5.5"></circle>
+      <line x1="13" y1="13" x2="17" y2="17"></line>
+    </svg>
+    <input
+      type="search"
+      [(ngModel)]="searchQuery"
+      placeholder="Suche nach Farbe, Hersteller, Material, Serie..."
+      autocomplete="off"
+    />
+  </div>
+  <div class="filters">
+    <select [(ngModel)]="selectedManufacturerId" aria-label="Nach Hersteller filtern">
+      <option value="">Alle Hersteller</option>
+      <option *ngFor="let m of spoolmate.manufacturers" [value]="m.id">
+        {{ m.name }}
+      </option>
+    </select>
+    <select [(ngModel)]="selectedMaterial" aria-label="Nach Material filtern">
+      <option value="">Alle Materialien</option>
+      <option *ngFor="let mat of uniqueMaterials" [value]="mat">
+        {{ mat }}
+      </option>
+    </select>
+    <select [(ngModel)]="sortBy" aria-label="Sortierung">
+      <option value="newest">Neueste zuerst</option>
+      <option value="remaining_asc">Restmenge (aufsteigend)</option>
+      <option value="remaining_desc">Restmenge (absteigend)</option>
+      <option value="price_asc">Preis/kg (aufsteigend)</option>
+      <option value="price_desc">Preis/kg (absteigend)</option>
+      <option value="manufacturer">Hersteller (A–Z)</option>
+    </select>
+    <label class="checkbox-pill">
+      <input type="checkbox" [(ngModel)]="lowOnly" />
+      <span>&lt; 200 g Rest</span>
+    </label>
+  </div>
+</div>
+
+<div class="spools-grid" *ngIf="filteredFilaments.length > 0; else emptyState">
+  <article class="spool-card" *ngFor="let f of filteredFilaments">
+    <div class="spool-top">
+      <div class="spool-visual">
+        <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="28" cy="28" r="25" fill="#ECE9E1" stroke="#B8B1A3" stroke-width="2"/>
+          <circle cx="28" cy="28" r="18" stroke="#DEDAD0" stroke-width="10"/>
+          <circle
+            cx="28"
+            cy="28"
+            r="18"
+            [attr.stroke]="f.color_hex || '#FF5F1F'"
+            stroke-width="10"
+            [attr.stroke-dasharray]="getSpoolDashArray(f)"
+            stroke-linecap="butt"
+            transform="rotate(-90 28 28)"
+          />
+          <circle cx="28" cy="28" r="23" stroke="rgba(24,24,27,0.18)" stroke-width="1" fill="none"/>
+          <circle cx="28" cy="28" r="13" stroke="rgba(24,24,27,0.18)" stroke-width="1" fill="none"/>
+          <circle cx="28" cy="28" r="8.5" fill="#FFFFFF" stroke="#18181B" stroke-width="2"/>
+          <circle cx="28" cy="28" r="3" fill="#18181B"/>
+        </svg>
+      </div>
+      <div class="spool-info">
+        <div class="spool-badges">
+          <span class="material-tag">{{ f.material }}</span>
+          <span class="series-tag" *ngIf="f.series">{{ f.series }}</span>
+        </div>
+        <h3 class="spool-title" [title]="f.color_name">{{ f.color_name }}</h3>
+        <div class="spool-manufacturer">{{ f.manufacturer_name }}</div>
+      </div>
+      <div class="spool-price-pill">
+        <span class="price-kg-main">{{ formatEur(f.price_per_kg) }}/kg</span>
+        <span class="price-purchase-sub">
+          {{ formatEur(f.purchase_price) }} / {{ formatGrams(f.initial_weight_g) }}
+        </span>
+      </div>
+    </div>
+
+    <div class="spool-meter">
+      <div class="meter-header">
+        <span class="meter-remaining">{{ formatGrams(f.remaining_weight_g) }} übrig</span>
+        <span class="meter-percent">
+          {{ getSpoolPercentage(f) }}% ({{ formatGrams(f.initial_weight_g) }})
+        </span>
+      </div>
+      <div class="progress-track">
+        <div
+          class="progress-fill"
+          [style.width.%]="getSpoolPercentage(f)"
+          [style.background]="getBarColor(f)"
+        ></div>
+      </div>
+      <div class="meter-footer">
+        <span>Restwert: <strong>{{ formatEur(getRemainingWorth(f)) }}</strong></span>
+        <span class="mono">{{ formatCentPerGram(f) }}</span>
+      </div>
+    </div>
+
+    <div class="spool-quick-adjust">
+      <span class="quick-adjust-label">Abziehen:</span>
+      <div class="quick-adjust-btns">
+        <button type="button" class="btn-micro" (click)="adjustWeight(f, -10)">-10g</button>
+        <button type="button" class="btn-micro" (click)="adjustWeight(f, -25)">-25g</button>
+        <button type="button" class="btn-micro" (click)="adjustWeight(f, -50)">-50g</button>
+        <button type="button" class="btn-micro" (click)="adjustWeight(f, -100)">-100g</button>
+        <button
+          type="button"
+          class="btn-micro"
+          title="Beliebige Menge abziehen"
+          (click)="promptCustomWeight(f)"
+        >
+          ± …
+        </button>
+      </div>
+    </div>
+
+    <div class="spool-notes" *ngIf="f.notes">{{ f.notes }}</div>
+
+    <div class="spool-actions">
+      <button
+        type="button"
+        class="btn btn-secondary btn-sm"
+        (click)="sendToProject.emit(f.id)"
+      >
+        Zu Projekt
+      </button>
+      <div class="spool-actions-right">
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm"
+          title="Alle Daten übernehmen, nur neue Farbe wählen"
+          (click)="duplicateSpool.emit(f)"
+        >
+          Duplizieren
+        </button>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm"
+          (click)="editSpool.emit(f)"
+        >
+          Bearbeiten
+        </button>
+        <button
+          type="button"
+          class="btn btn-danger-ghost btn-sm"
+          (click)="deleteSpool(f)"
+        >
+          Löschen
+        </button>
+      </div>
+    </div>
+  </article>
+</div>
+
+<ng-template #emptyState>
+  <div class="spools-grid">
+    <div class="empty-state">
+      <p style="font-size:1.02rem;font-weight:700;color:#18181B;margin-bottom:4px;">
+        Keine passenden Filament-Spulen gefunden
+      </p>
+      <p>Füge eine neue Spule hinzu oder passe deine Suchfilter an.</p>
+    </div>
+  </div>
+</ng-template>

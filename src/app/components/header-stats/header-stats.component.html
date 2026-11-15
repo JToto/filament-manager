@@ -1,0 +1,49 @@
+<!-- Top Header -->
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-logo" aria-hidden="true">
+      <svg viewBox="0 0 36 36" fill="none">
+        <circle cx="18" cy="18" r="15.5" stroke="#18181B" stroke-width="2.5"/>
+        <circle cx="18" cy="18" r="10.5" stroke="#FF5F1F" stroke-width="4.5" stroke-dasharray="48 18" stroke-linecap="butt"/>
+        <circle cx="18" cy="18" r="4" fill="#18181B"/>
+      </svg>
+    </div>
+    <div>
+      <div class="brand-title-row">
+        <h1>SpoolMate</h1>
+        <span class="brand-tag">FILAMENT INVENTAR</span>
+      </div>
+      <p class="subtitle">Spulenbestand, Hersteller &amp; Druckkosten-Kalkulation</p>
+    </div>
+  </div>
+
+  <div class="topbar-actions">
+    <button type="button" class="btn btn-primary" (click)="addSpoolClicked.emit()">
+      <span class="btn-icon">+</span> Neue Spule anlegen
+    </button>
+  </div>
+</header>
+
+<!-- KPI Cards -->
+<section class="stats-grid" aria-label="Bestandsübersicht">
+  <div class="stat-card">
+    <span class="stat-label">Spulen im Bestand</span>
+    <strong class="stat-value mono">{{ totalSpools }}</strong>
+    <span class="stat-meta">{{ lowStockCount }} fast leer (&lt; 200 g)</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Verfügbare Restmenge</span>
+    <strong class="stat-value mono">{{ remainingStockFormatted }}</strong>
+    <span class="stat-meta">{{ totalInitialFormatted }}</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Restwert im Lager</span>
+    <strong class="stat-value mono">{{ totalRemainingValueFormatted }}</strong>
+    <span class="stat-meta">Einkaufswert: {{ totalPurchaseValueFormatted }}</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Ø Kilopreis</span>
+    <strong class="stat-value mono">{{ avgKgFormatted }}</strong>
+    <span class="stat-meta">{{ spoolmate.manufacturers.length }} Hersteller verwaltet</span>
+  </div>
+</section>

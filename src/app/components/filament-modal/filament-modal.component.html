@@ -1,0 +1,220 @@
+<div class="modal-backdrop" [class.hidden]="!isOpen" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2 id="modalTitle">{{ modalTitle }}</h2>
+    </div>
+
+    <form (ngSubmit)="submitForm(false)">
+      <div class="form-row two-col">
+        <div class="form-group">
+          <div class="label-with-link">
+            <label for="fManufacturer">Hersteller *</label>
+            <button
+              type="button"
+              class="link-btn"
+              (click)="promptQuickManufacturer()"
+            >
+              + Neuer Hersteller
+            </button>
+          </div>
+          <select
+            id="fManufacturer"
+            name="manufacturerId"
+            [(ngModel)]="manufacturerId"
+            required
+          >
+            <option *ngFor="let m of spoolmate.manufacturers" [value]="m.id">
+              {{ m.name }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="fMaterial">Material / Typ *</label>
+          <input
+            type="text"
+            id="fMaterial"
+            name="material"
+            list="materialSuggestions"
+            [(ngModel)]="material"
+            required
+            placeholder="z. B. PLA, PETG, ASA..."
+          />
+          <datalist id="materialSuggestions">
+            <option value="PLA"></option>
+            <option value="PLA+"></option>
+            <option value="PLA Matte"></option>
+            <option value="PLA Silk"></option>
+            <option value="PETG"></option>
+            <option value="ABS"></option>
+            <option value="ASA"></option>
+            <option value="TPU 95A"></option>
+            <option value="PA-CF (Nylon)"></option>
+            <option value="PC (Polycarbonat)"></option>
+            <option value="PLA Wood"></option>
+            <option value="PETG-CF"></option>
+          </datalist>
+        </div>
+      </div>
+
+      <div class="form-row two-col">
+        <div class="form-group">
+          <label for="fColorName">Farbbezeichnung *</label>
+          <input
+            #colorNameInput
+            type="text"
+            id="fColorName"
+            name="colorName"
+            [(ngModel)]="colorName"
+            required
+            placeholder="z. B. Galaxy Black, Signalweiß, Rubinrot"
+          />
+        </div>
+        <div class="form-group">
+          <label for="fSeries">Serie / Zusatz (optional)</label>
+          <input
+            type="text"
+            id="fSeries"
+            name="series"
+            [(ngModel)]="series"
+            placeholder="z. B. Basic, Matte, PolyTerra, High Speed"
+          />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Farbvorschau &amp; Farbcode</label>
+        <div class="color-picker-row">
+          <input
+            type="color"
+            name="colorHex"
+            [(ngModel)]="colorHex"
+            aria-label="Farbe wählen"
+          />
+          <input
+            type="text"
+            name="colorHexText"
+            [(ngModel)]="colorHex"
+            maxlength="7"
+            class="hex-input mono"
+          />
+          <div class="color-swatches">
+            <button
+              type="button"
+              class="swatch"
+              *ngFor="let s of swatches"
+              [style.background]="s.hex"
+              [title]="s.name + ' (' + s.hex + ')'"
+              (click)="selectSwatch(s)"
+            ></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Price & Weight Section with Live KG Conversion -->
+      <div class="price-converter-box">
+        <div class="price-converter-title">
+          Kaufpreis &amp; Spulenmenge — automatische kg-Umrechnung
+        </div>
+        <div class="form-row three-col">
+          <div class="form-group">
+            <label for="fPurchasePrice">Kaufpreis der Spule *</label>
+            <div class="input-with-unit">
+              <input
+                type="number"
+                id="fPurchasePrice"
+                name="purchasePrice"
+                [(ngModel)]="purchasePrice"
+                min="0"
+                step="0.01"
+                required
+                placeholder="22.99"
+              />
+              <span class="unit-tag">€</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="fInitialWeight">Gekaufte Menge *</label>
+            <div class="input-with-unit">
+              <input
+                type="number"
+                id="fInitialWeight"
+                name="initialWeightG"
+                [(ngModel)]="initialWeightG"
+                (ngModelChange)="onInitialWeightChange()"
+                min="1"
+                step="1"
+                required
+              />
+              <span class="unit-tag">g</span>
+            </div>
+            <div class="quick-chips">
+              <button type="button" class="chip" (click)="setWeightChip(250)">250g</button>
+              <button type="button" class="chip" (click)="setWeightChip(500)">500g</button>
+              <button type="button" class="chip" (click)="setWeightChip(750)">750g</button>
+              <button type="button" class="chip" (click)="setWeightChip(1000)">1 kg</button>
+              <button type="button" class="chip" (click)="setWeightChip(2000)">2 kg</button>
+            </div>
+          </div>
+
+          <div class="kg-live-badge">
+            <span class="kg-live-label">Preis pro Kilogramm</span>
+            <strong class="kg-live-value mono">{{ livePricePerKg }}</strong>
+            <span class="kg-live-sub mono">{{ livePricePerGram }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-row two-col">
+        <div class="form-group">
+          <label for="fRemainingWeight">Aktuelle Restmenge (g) *</label>
+          <div class="input-with-unit">
+            <input
+              type="number"
+              id="fRemainingWeight"
+              name="remainingWeightG"
+              [(ngModel)]="remainingWeightG"
+              (input)="remainingTouched = true"
+              min="0"
+              step="any"
+              required
+            />
+            <span class="unit-tag">g</span>
+          </div>
+          <div class="form-hint">
+            Wird beim Neuanlegen automatisch mit der gekauften Menge befüllt.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="fNotes">Notiz / Druckparameter (optional)</label>
+          <input
+            type="text"
+            id="fNotes"
+            name="notes"
+            [(ngModel)]="notes"
+            placeholder="z. B. 215°C / 60°C, vor Druck trocknen..."
+          />
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" (click)="closed.emit()">
+          Abbrechen
+        </button>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          title="Speichert diese Spule und behält Hersteller, Typ, Preis und Menge für die nächste Farbe im Set bei"
+          (click)="submitForm(true)"
+        >
+          Speichern &amp; nächste Farbe
+        </button>
+        <button type="submit" class="btn btn-primary">
+          Spule speichern
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

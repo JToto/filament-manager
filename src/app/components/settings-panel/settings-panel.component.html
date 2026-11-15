@@ -1,0 +1,146 @@
+<div class="manufacturers-layout">
+  <div class="card">
+    <div class="card-header">
+      <h2>Strom- &amp; Druckerkosten</h2>
+      <p>
+        Diese Werte werden genutzt, um bei deinen Projekten anhand der eingetragenen Druckzeit automatisch die Stromkosten zu berechnen.
+      </p>
+    </div>
+
+    <form (ngSubmit)="saveSettings()">
+      <div class="form-group">
+        <label for="sPrinterName">Drucker-Bezeichnung (optional)</label>
+        <input
+          type="text"
+          id="sPrinterName"
+          name="printerName"
+          [(ngModel)]="printerName"
+          placeholder="z. B. Bambu Lab P1S, A1, Prusa MK4..."
+        />
+      </div>
+
+      <div class="form-row two-col">
+        <div class="form-group">
+          <label for="sElectricityPrice">Strompreis (€ pro kWh) *</label>
+          <div class="input-with-unit">
+            <input
+              type="number"
+              id="sElectricityPrice"
+              name="electricityPricePerKwh"
+              [(ngModel)]="electricityPricePerKwh"
+              min="0"
+              step="any"
+              required
+            />
+            <span class="unit-tag">€/kWh</span>
+          </div>
+          <div class="quick-chips">
+            <button type="button" class="chip" (click)="setElecPriceChip(0.28)">0,28 €</button>
+            <button type="button" class="chip" (click)="setElecPriceChip(0.32)">0,32 €</button>
+            <button type="button" class="chip" (click)="setElecPriceChip(0.35)">0,35 €</button>
+            <button type="button" class="chip" (click)="setElecPriceChip(0.40)">0,40 €</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="sPrinterPowerKwh">Stromverbrauch Drucker (kWh pro Std.) *</label>
+          <div class="input-with-unit">
+            <input
+              type="number"
+              id="sPrinterPowerKwh"
+              name="printerPowerKwh"
+              [(ngModel)]="printerPowerKwh"
+              min="0"
+              step="any"
+              required
+            />
+            <span class="unit-tag">kWh</span>
+          </div>
+          <div class="form-hint">
+            Entspricht Ø {{ currentWatts }} Watt Leistungsaufnahme im Druckbetrieb.
+          </div>
+          <div class="quick-chips">
+            <button
+              type="button"
+              class="chip"
+              title="ca. 60 W (z. B. A1 mini PLA)"
+              (click)="setPowerChip(0.06)"
+            >
+              0,06 kWh (60W)
+            </button>
+            <button
+              type="button"
+              class="chip"
+              title="ca. 120 W (z. B. P1S / X1C / MK4 PLA)"
+              (click)="setPowerChip(0.12)"
+            >
+              0,12 kWh (120W)
+            </button>
+            <button
+              type="button"
+              class="chip"
+              title="ca. 180 W (z. B. PETG / höheres Heizbett)"
+              (click)="setPowerChip(0.18)"
+            >
+              0,18 kWh (180W)
+            </button>
+            <button
+              type="button"
+              class="chip"
+              title="ca. 280 W (z. B. ABS / ASA)"
+              (click)="setPowerChip(0.28)"
+            >
+              0,28 kWh (280W)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Einstellungen speichern</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h2>Vorschau Stromkosten</h2>
+      <p>So wirken sich deine aktuellen Einstellungen auf die Druckzeit aus:</p>
+    </div>
+
+    <div class="price-converter-box" style="margin-bottom:16px;">
+      <div class="price-converter-title">Stromkosten pro Stunde Druckzeit</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <strong class="mono" style="font-size:1.65rem;color:var(--accent);">
+          {{ formatEur(costPerHour) }} / Std.
+        </strong>
+        <span class="mono text-muted">{{ previewWattsSub }}</span>
+      </div>
+    </div>
+
+    <table class="project-items-table" style="margin-bottom:0;">
+      <thead>
+        <tr>
+          <th>Beispiel-Druckdauer</th>
+          <th>Verbrauch</th>
+          <th>Stromkosten</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let row of exampleDurations">
+          <td><strong>{{ row.label }}</strong></td>
+          <td class="mono">
+            {{
+              (row.hours * printerPowerKwh).toLocaleString('de-DE', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              })
+            }}
+            kWh
+          </td>
+          <td class="mono"><strong>{{ formatEur(row.hours * costPerHour) }}</strong></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

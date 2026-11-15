@@ -1,0 +1,106 @@
+<div class="manufacturers-layout">
+  <div class="card">
+    <div class="card-header">
+      <h2>{{ formTitle }}</h2>
+      <p>
+        Verwalte deine Filament-Marken. Das Leerspulengewicht hilft beim Abwiegen angebrochener Spulen.
+      </p>
+    </div>
+    <form (ngSubmit)="submitForm()">
+      <div class="form-group">
+        <label for="mfgNameInput">Name des Herstellers *</label>
+        <input
+          type="text"
+          id="mfgNameInput"
+          name="name"
+          [(ngModel)]="name"
+          required
+          placeholder="z. B. Bambu Lab, Prusament, Extrudr..."
+        />
+      </div>
+      <div class="form-row two-col">
+        <div class="form-group">
+          <label for="mfgCountryInput">Land / Kürzel (optional)</label>
+          <input
+            type="text"
+            id="mfgCountryInput"
+            name="country"
+            [(ngModel)]="country"
+            placeholder="z. B. DE, AT, CZ, CN"
+          />
+        </div>
+        <div class="form-group">
+          <label for="mfgSpoolWeightInput">Ø Leerspule (g)</label>
+          <div class="input-with-unit">
+            <input
+              type="number"
+              id="mfgSpoolWeightInput"
+              name="emptySpoolWeightG"
+              [(ngModel)]="emptySpoolWeightG"
+              min="0"
+              max="1000"
+            />
+            <span class="unit-tag">g</span>
+          </div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button
+          type="button"
+          class="btn btn-ghost"
+          *ngIf="editingId !== null"
+          (click)="resetForm()"
+        >
+          Abbrechen
+        </button>
+        <button type="submit" class="btn btn-primary">{{ submitLabel }}</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h2>Vorhandene Hersteller</h2>
+      <p>
+        Gängige Hersteller sind vorinstalliert und können frei ergänzt oder bearbeitet werden.
+      </p>
+    </div>
+    <div class="manufacturers-list">
+      <p class="text-muted" *ngIf="spoolmate.manufacturers.length === 0">
+        Noch keine Hersteller angelegt.
+      </p>
+      <div class="mfg-item" *ngFor="let m of spoolmate.manufacturers">
+        <div>
+          <div class="mfg-item-name">
+            <span>{{ m.name }}</span>
+            <span class="mfg-country" *ngIf="m.country">{{ m.country }}</span>
+          </div>
+          <div class="mfg-item-meta">
+            {{ m.spool_count || 0 }} Spule(n) · Leerspule ~{{ m.empty_spool_weight_g || 200 }} g
+          </div>
+        </div>
+        <div class="mfg-item-actions">
+          <button
+            type="button"
+            class="btn-micro"
+            title="Bearbeiten"
+            (click)="startEdit(m)"
+          >
+            ✎
+          </button>
+          <button
+            type="button"
+            class="btn-micro"
+            [title]="(m.spool_count || 0) > 0 ? 'Noch Spulen zugeordnet' : 'Löschen'"
+            [disabled]="(m.spool_count || 0) > 0"
+            [style.opacity]="(m.spool_count || 0) > 0 ? '0.35' : '1'"
+            [style.cursor]="(m.spool_count || 0) > 0 ? 'not-allowed' : 'pointer'"
+            (click)="deleteManufacturer(m)"
+          >
+            🗑
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
